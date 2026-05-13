@@ -76,8 +76,41 @@ export async function createProduct(
       }))
     )
     if (imgError) {
-      // Product saved; log image failure but don't block the user
       console.error('product_images insert failed:', imgError.message)
+    }
+  }
+
+  // variants_json is serialized client-side from controlled inputs
+  type VariantInput = {
+    id: string
+    option1_name: string; option1_value: string
+    option2_name: string; option2_value: string
+    price: string; sku: string; inventory_qty: string
+  }
+  const variantsJson = formData.get('variants_json') as string | null
+  const variantInputs: VariantInput[] = variantsJson ? JSON.parse(variantsJson) : []
+
+  const variantRows = variantInputs
+    .filter((v) =>
+      v.option1_name.trim() || v.option1_value.trim() ||
+      v.option2_name.trim() || v.option2_value.trim() ||
+      v.sku.trim() || parseFloat(v.price) > 0 || parseInt(v.inventory_qty) > 0
+    )
+    .map((v) => ({
+      product_id: product.id,
+      option1_name:  v.option1_name.trim()  || null,
+      option1_value: v.option1_value.trim() || null,
+      option2_name:  v.option2_name.trim()  || null,
+      option2_value: v.option2_value.trim() || null,
+      price:         parseFloat(v.price)    || 0,
+      sku:           v.sku.trim()           || null,
+      inventory_qty: parseInt(v.inventory_qty) || 0,
+    }))
+
+  if (variantRows.length > 0) {
+    const { error: varError } = await supabase.from('variants').insert(variantRows)
+    if (varError) {
+      console.error('variants insert failed:', varError.message)
     }
   }
 

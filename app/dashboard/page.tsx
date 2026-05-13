@@ -13,7 +13,7 @@ export default async function DashboardPage() {
 
   const { data: rawProducts } = await supabase
     .from('products')
-    .select('id, title, status, price, product_images(image_url, position)')
+    .select('id, title, status, price, product_images(image_url, position), variants(id)')
     .order('created_at', { ascending: false })
 
   type ProductImage = { image_url: string; position: number }
@@ -23,6 +23,7 @@ export default async function DashboardPage() {
     status: string
     price: number
     product_images: ProductImage[] | null
+    variants: { id: string }[] | null
   }
 
   const products = (rawProducts as RawProduct[] | null)?.map((p) => {
@@ -31,7 +32,8 @@ export default async function DashboardPage() {
     const thumbUrl = firstImage
       ? supabase.storage.from('product-images').getPublicUrl(firstImage.image_url).data.publicUrl
       : null
-    return { ...p, thumbUrl }
+    const variantCount = (p.variants ?? []).length
+    return { ...p, thumbUrl, variantCount }
   })
 
   return (
@@ -64,6 +66,7 @@ export default async function DashboardPage() {
               <th style={{ padding: '8px 12px' }}>Title</th>
               <th style={{ padding: '8px 12px' }}>Status</th>
               <th style={{ padding: '8px 12px' }}>Price</th>
+              <th style={{ padding: '8px 12px' }}>Variants</th>
             </tr>
           </thead>
           <tbody>
@@ -100,6 +103,11 @@ export default async function DashboardPage() {
                   </span>
                 </td>
                 <td style={{ padding: '10px 12px' }}>${Number(p.price).toFixed(2)}</td>
+                <td style={{ padding: '10px 12px', color: '#555', fontSize: 13 }}>
+                  {p.variantCount > 0
+                    ? `${p.variantCount} variant${p.variantCount !== 1 ? 's' : ''}`
+                    : '—'}
+                </td>
               </tr>
             ))}
           </tbody>
