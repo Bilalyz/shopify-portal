@@ -15,6 +15,10 @@ type VariantRow = {
   inventory_qty: string
 }
 
+function toTitleCase(s: string): string {
+  return s.trim().replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
 function emptyVariant(): VariantRow {
   return {
     id: crypto.randomUUID(),
@@ -403,6 +407,7 @@ function VariantCard({
             placeholder="e.g. Small"
             value={v.option1_value}
             onChange={(e) => onUpdate(v.id, 'option1_value', e.target.value)}
+            onBlur={(e) => onUpdate(v.id, 'option1_value', toTitleCase(e.target.value))}
             className={ic}
           />
         </div>
@@ -414,6 +419,7 @@ function VariantCard({
               placeholder="e.g. Red"
               value={v.option2_value}
               onChange={(e) => onUpdate(v.id, 'option2_value', e.target.value)}
+              onBlur={(e) => onUpdate(v.id, 'option2_value', toTitleCase(e.target.value))}
               className={ic}
             />
           </div>
