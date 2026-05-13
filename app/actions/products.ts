@@ -277,3 +277,28 @@ export async function deleteProduct(productId: string): Promise<void> {
 
   revalidatePath('/dashboard')
 }
+
+export async function deleteProducts(productIds: string[]): Promise<void> {
+  if (productIds.length === 0) return
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return
+
+  // Fetch all storage paths before cascade delete removes the rows
+  const { data: images } = await supabase
+    .from('product_images')
+    .select('image_url')
+    .in('product_id', productIds)
+
+  await supabase
+    .from('products')
+    .delete()
+    .in('id', productIds)
+    .eq('user_id', user.id)
+
+  if (images?.length) {
+    await supabase.storage.from('product-images').remove(images.map((img) => img.image_url))
+  }
+
+  revalidatePath('/dashboard')
+}

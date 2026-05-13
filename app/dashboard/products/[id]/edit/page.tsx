@@ -20,7 +20,7 @@ export default async function EditProductPage({
 
   const { data: product } = await supabase
     .from('products')
-    .select('title, description, product_type, vendor, tags, status, price, compare_at_price')
+    .select('title, description, product_type, vendor, tags, status, price, compare_at_price, created_at, updated_at')
     .eq('id', id)
     .eq('user_id', user.id)
     .single()
@@ -73,7 +73,24 @@ export default async function EditProductPage({
           Back to dashboard
         </Link>
 
-        <h1 className="text-xl font-semibold text-gray-900 mb-6">Edit product</h1>
+        <div className="mb-6">
+          <h1 className="text-xl font-semibold text-gray-900">Edit product</h1>
+          <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-400">
+            <span>
+              Created{' '}
+              {new Date(product.created_at).toLocaleDateString('en-US', {
+                month: 'long', day: 'numeric', year: 'numeric',
+              })}
+            </span>
+            <span className="text-gray-200">·</span>
+            <span>
+              Last updated{' '}
+              {new Date(product.updated_at).toLocaleDateString('en-US', {
+                month: 'long', day: 'numeric', year: 'numeric',
+              })}
+            </span>
+          </div>
+        </div>
 
         {saved === '1' && (
           <div className="flex items-center gap-2.5 mb-6 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl text-sm text-emerald-700">

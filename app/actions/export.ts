@@ -284,3 +284,80 @@ export async function exportProductsCsv(): Promise<string> {
   // non-Latin characters without needing an explicit encoding selection.
   return '﻿' + lines.join('\r\n')
 }
+
+// ── Export a specific subset of products (same format, filtered by ID) ────────
+
+export async function exportSelectedProductsCsv(ids: string[]): Promise<string> {
+  if (ids.length === 0) throw new Error('No products selected')
+
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { data: products, error } = await supabase
+    .from('products')
+    .select(`
+      id, title, description, vendor, product_type, tags, status, price, compare_at_price,
+      variants(option1_name, option1_value, option2_name, option2_value, price, sku),
+      product_images(image_url, position, alt_text)
+    `)
+    .in('id', ids)
+    .order('created_at', { ascending: true })
+
+  if (error) throw new Error(error.message)
+
+  const getPublicUrl = (path: string) =>
+    supabase.storage.from('product-images').getPublicUrl(path).data.publicUrl
+
+  const lines: string[] = [HEADERS.join(',')]
+
+  for (const p of products ?? []) {
+    const handle = slugify(p.title)
+    const variants = (p.variants ?? []) as VariantData[]
+    const images = ([...(p.product_images ?? [])] as ImageData[])
+      .sort((a, b) => a.position - b.position)
+
+    const compareAtPrice = fmtPrice(p.compare_at_price)
+
+    const effectiveVariants: VariantData[] =
+      variants.length > 0
+        ? variants
+        : [{
+            option1_name: null, option1_value: null,
+            option2_name: null, option2_value: null,
+            price: p.price,
+            sku: null,
+          }]
+
+    lines.push(rowToLine({
+      'Handle':           handle,
+      'Title':            p.title,
+      'Body (HTML)':      p.description ?? '',
+      'Vendor':           p.vendor ?? '',
+      'Product Category': '',
+      'Type':             p.product_type ?? '',
+      'Tags':             (p.tags ?? []).join(', '),
+      'Published':        p.status === 'active' ? 'true' : 'false',
+      'Gift Card':        'false',
+      'Status':           p.status,
+      ...variantCols(effectiveVariants[0], compareAtPrice),
+      ...(images[0] ? imageCols(images[0], getPublicUrl(images[0].image_url)) : {}),
+    }))
+
+    for (let i = 1; i < effectiveVariants.length; i++) {
+      lines.push(rowToLine({
+        'Handle': handle,
+        ...variantCols(effectiveVariants[i], ''),
+      }))
+    }
+
+    for (let i = 1; i < images.length; i++) {
+      lines.push(rowToLine({
+        'Handle': handle,
+        ...imageCols(images[i], getPublicUrl(images[i].image_url)),
+      }))
+    }
+  }
+
+  return '﻿' + lines.join('\r\n')
+}
