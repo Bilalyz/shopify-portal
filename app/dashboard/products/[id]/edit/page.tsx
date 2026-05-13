@@ -1,6 +1,7 @@
 import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
+import { getOrgContext } from '@/lib/auth/org'
 import DashboardNav from '@/app/dashboard/_nav'
 import EditProductForm from './_form'
 
@@ -18,11 +19,14 @@ export default async function EditProductPage({
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  const orgContext = await getOrgContext()
+  if (!orgContext) redirect('/orgs')
+
   const { data: product } = await supabase
     .from('products')
     .select('title, description, product_type, vendor, tags, status, price, compare_at_price, created_at, updated_at')
     .eq('id', id)
-    .eq('user_id', user.id)
+    .eq('org_id', orgContext.current.orgId)
     .single()
 
   if (!product) notFound()

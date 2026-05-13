@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getOrgContext } from '@/lib/auth/org'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -210,6 +211,9 @@ export async function exportProductsCsv(): Promise<string> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Not authenticated')
 
+  const orgContext = await getOrgContext()
+  if (!orgContext) throw new Error('No organization selected')
+
   const { data: products, error } = await supabase
     .from('products')
     .select(`
@@ -217,6 +221,7 @@ export async function exportProductsCsv(): Promise<string> {
       variants(option1_name, option1_value, option2_name, option2_value, price, sku),
       product_images(image_url, position, alt_text)
     `)
+    .eq('org_id', orgContext.current.orgId)
     .order('created_at', { ascending: true })
 
   if (error) throw new Error(error.message)
@@ -294,6 +299,9 @@ export async function exportSelectedProductsCsv(ids: string[]): Promise<string> 
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Not authenticated')
 
+  const orgContext = await getOrgContext()
+  if (!orgContext) throw new Error('No organization selected')
+
   const { data: products, error } = await supabase
     .from('products')
     .select(`
@@ -302,6 +310,7 @@ export async function exportSelectedProductsCsv(ids: string[]): Promise<string> 
       product_images(image_url, position, alt_text)
     `)
     .in('id', ids)
+    .eq('org_id', orgContext.current.orgId)
     .order('created_at', { ascending: true })
 
   if (error) throw new Error(error.message)

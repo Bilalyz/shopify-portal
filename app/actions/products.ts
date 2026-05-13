@@ -3,6 +3,7 @@
 import { redirect } from 'next/navigation'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { getOrgContext } from '@/lib/auth/org'
 
 export type ProductFormState = {
   error?: string
@@ -17,6 +18,11 @@ export async function createProduct(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
     return { error: 'You must be signed in to create a product.' }
+  }
+
+  const orgContext = await getOrgContext()
+  if (!orgContext) {
+    return { error: 'No organization selected. Please select an organization first.' }
   }
 
   const title = (formData.get('title') as string).trim()
@@ -50,6 +56,7 @@ export async function createProduct(
     .from('products')
     .insert({
       user_id: user.id,
+      org_id: orgContext.current.orgId,
       title,
       description: (formData.get('description') as string).trim() || null,
       product_type: (formData.get('product_type') as string).trim() || null,
@@ -126,6 +133,9 @@ export async function updateProduct(
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'You must be signed in.' }
 
+  const orgContext = await getOrgContext()
+  if (!orgContext) return { error: 'No organization selected.' }
+
   const title = (formData.get('title') as string).trim()
   if (!title) return { error: 'Title is required.' }
 
@@ -158,7 +168,7 @@ export async function updateProduct(
       compare_at_price,
     })
     .eq('id', productId)
-    .eq('user_id', user.id)
+    .eq('org_id', orgContext.current.orgId)
 
   if (updateError) return { error: updateError.message }
 
@@ -265,13 +275,20 @@ export async function deleteProduct(productId: string): Promise<void> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return
 
+  const orgContext = await getOrgContext()
+  if (!orgContext) return
+
   // Fetch storage paths before cascade delete removes the rows
   const { data: images } = await supabase
     .from('product_images')
     .select('image_url')
     .eq('product_id', productId)
 
-  await supabase.from('products').delete().eq('id', productId).eq('user_id', user.id)
+  await supabase
+    .from('products')
+    .delete()
+    .eq('id', productId)
+    .eq('org_id', orgContext.current.orgId)
 
   if (images?.length) {
     await supabase.storage.from('product-images').remove(images.map((img) => img.image_url))
@@ -282,9 +299,13 @@ export async function deleteProduct(productId: string): Promise<void> {
 
 export async function deleteProducts(productIds: string[]): Promise<void> {
   if (productIds.length === 0) return
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return
+
+  const orgContext = await getOrgContext()
+  if (!orgContext) return
 
   // Fetch all storage paths before cascade delete removes the rows
   const { data: images } = await supabase
@@ -296,7 +317,7 @@ export async function deleteProducts(productIds: string[]): Promise<void> {
     .from('products')
     .delete()
     .in('id', productIds)
-    .eq('user_id', user.id)
+    .eq('org_id', orgContext.current.orgId)
 
   if (images?.length) {
     await supabase.storage.from('product-images').remove(images.map((img) => img.image_url))

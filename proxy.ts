@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { ORG_COOKIE } from '@/lib/auth/org'
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
@@ -32,20 +33,30 @@ export async function proxy(request: NextRequest) {
   } = await supabase.auth.getUser()
 
   const { pathname } = request.nextUrl
+  const currentOrg = request.cookies.get(ORG_COOKIE)?.value
 
-  const isProtected = pathname.startsWith('/dashboard')
-  const isPublic =
-    pathname.startsWith('/login') || pathname.startsWith('/auth')
+  const isDashboard = pathname.startsWith('/dashboard')
+  const isOrgs     = pathname.startsWith('/orgs')
+  const isPublic   = pathname.startsWith('/login') || pathname.startsWith('/auth')
 
-  if (isProtected && !user) {
+  // ── Unauthenticated guards ────────────────────────────────────────────────
+  if ((isDashboard || isOrgs) && !user) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
   }
 
+  // ── Dashboard requires an active org selection ────────────────────────────
+  if (isDashboard && user && !currentOrg) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/orgs'
+    return NextResponse.redirect(url)
+  }
+
+  // ── Authenticated users skip public pages ─────────────────────────────────
   if (isPublic && user && !pathname.startsWith('/auth')) {
     const url = request.nextUrl.clone()
-    url.pathname = '/dashboard'
+    url.pathname = currentOrg ? '/dashboard' : '/orgs'
     return NextResponse.redirect(url)
   }
 

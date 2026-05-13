@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
+import { getOrgContext } from '@/lib/auth/org'
 import DashboardNav from '@/app/dashboard/_nav'
 import NewProductForm from './_form'
 
@@ -9,6 +10,9 @@ export default async function NewProductPage() {
   const { data: { user } } = await supabase.auth.getUser()
 
   if (!user) redirect('/login')
+
+  const orgContext = await getOrgContext()
+  if (!orgContext) redirect('/orgs')
 
   return (
     <div className="min-h-screen bg-gray-50">

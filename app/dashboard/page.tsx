@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
+import { getOrgContext } from '@/lib/auth/org'
 import DashboardNav from './_nav'
 import ExportButton from './_export-button'
 import ProductTable from './_product-table'
@@ -11,9 +12,13 @@ export default async function DashboardPage() {
 
   if (!user) redirect('/login')
 
+  const orgContext = await getOrgContext()
+  if (!orgContext) redirect('/orgs')
+
   const { data: rawProducts } = await supabase
     .from('products')
     .select('id, title, status, price, created_at, product_images(image_url, position), variants(id)')
+    .eq('org_id', orgContext.current.orgId)
     .order('created_at', { ascending: false })
 
   type ProductImage = { image_url: string; position: number }
