@@ -11,10 +11,28 @@ export default async function DashboardPage() {
     redirect('/login')
   }
 
-  const { data: products } = await supabase
+  const { data: rawProducts } = await supabase
     .from('products')
-    .select('id, title, status, price')
+    .select('id, title, status, price, product_images(image_url, position)')
     .order('created_at', { ascending: false })
+
+  type ProductImage = { image_url: string; position: number }
+  type RawProduct = {
+    id: string
+    title: string
+    status: string
+    price: number
+    product_images: ProductImage[] | null
+  }
+
+  const products = (rawProducts as RawProduct[] | null)?.map((p) => {
+    const firstImage = (p.product_images ?? [])
+      .sort((a, b) => a.position - b.position)[0]
+    const thumbUrl = firstImage
+      ? supabase.storage.from('product-images').getPublicUrl(firstImage.image_url).data.publicUrl
+      : null
+    return { ...p, thumbUrl }
+  })
 
   return (
     <main style={{ maxWidth: 720, margin: '48px auto', padding: '0 16px' }}>
@@ -42,6 +60,7 @@ export default async function DashboardPage() {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
           <thead>
             <tr style={{ borderBottom: '2px solid #eee', textAlign: 'left' }}>
+              <th style={{ padding: '8px 12px', width: 56 }} />
               <th style={{ padding: '8px 12px' }}>Title</th>
               <th style={{ padding: '8px 12px' }}>Status</th>
               <th style={{ padding: '8px 12px' }}>Price</th>
@@ -50,6 +69,24 @@ export default async function DashboardPage() {
           <tbody>
             {products.map((p) => (
               <tr key={p.id} style={{ borderBottom: '1px solid #eee' }}>
+                <td style={{ padding: '8px 12px' }}>
+                  {p.thumbUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={p.thumbUrl}
+                      alt={p.title}
+                      width={40}
+                      height={40}
+                      style={{ objectFit: 'cover', display: 'block', border: '1px solid #eee' }}
+                    />
+                  ) : (
+                    <div style={{
+                      width: 40, height: 40,
+                      background: '#f3f4f6',
+                      border: '1px solid #eee',
+                    }} />
+                  )}
+                </td>
                 <td style={{ padding: '10px 12px' }}>{p.title}</td>
                 <td style={{ padding: '10px 12px' }}>
                   <span style={{

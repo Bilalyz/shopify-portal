@@ -45,20 +45,40 @@ export async function createProduct(
     return { error: 'Status must be draft or active.' }
   }
 
-  const { error } = await supabase.from('products').insert({
-    user_id: user.id,
-    title,
-    description: (formData.get('description') as string).trim() || null,
-    product_type: (formData.get('product_type') as string).trim() || null,
-    vendor: (formData.get('vendor') as string).trim() || null,
-    tags,
-    status,
-    price,
-    compare_at_price,
-  })
+  const { data: product, error } = await supabase
+    .from('products')
+    .insert({
+      user_id: user.id,
+      title,
+      description: (formData.get('description') as string).trim() || null,
+      product_type: (formData.get('product_type') as string).trim() || null,
+      vendor: (formData.get('vendor') as string).trim() || null,
+      tags,
+      status,
+      price,
+      compare_at_price,
+    })
+    .select('id')
+    .single()
 
   if (error) {
     return { error: error.message }
+  }
+
+  // image_path entries are storage paths appended by the browser before dispatch
+  const imagePaths = formData.getAll('image_path') as string[]
+  if (imagePaths.length > 0) {
+    const { error: imgError } = await supabase.from('product_images').insert(
+      imagePaths.map((path, i) => ({
+        product_id: product.id,
+        image_url: path,
+        position: i,
+      }))
+    )
+    if (imgError) {
+      // Product saved; log image failure but don't block the user
+      console.error('product_images insert failed:', imgError.message)
+    }
   }
 
   redirect('/dashboard')
