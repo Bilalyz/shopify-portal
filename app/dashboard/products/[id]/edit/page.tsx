@@ -45,12 +45,15 @@ export default async function EditProductPage({
     publicUrl: supabase.storage.from('product-images').getPublicUrl(img.image_url).data.publicUrl,
   }))
 
+  const firstVar = variantRows?.[0]
+  const initialOption1Name = firstVar?.option1_name ?? ''
+  const initialOption2Name = firstVar?.option2_name ?? ''
+  const initialHasOption2 = (variantRows ?? []).some((v) => v.option2_name || v.option2_value)
+
   const existingVariants = (variantRows ?? []).map((v) => ({
     id: v.id,
     dbId: v.id,
-    option1_name:  v.option1_name  ?? '',
     option1_value: v.option1_value ?? '',
-    option2_name:  v.option2_name  ?? '',
     option2_value: v.option2_value ?? '',
     price:         String(v.price  ?? ''),
     sku:           v.sku           ?? '',
@@ -106,6 +109,9 @@ export default async function EditProductPage({
           initialData={product}
           initialImages={existingImages}
           initialVariants={existingVariants}
+          initialOption1Name={initialOption1Name}
+          initialHasOption2={initialHasOption2}
+          initialOption2Name={initialOption2Name}
         />
       </main>
     </div>

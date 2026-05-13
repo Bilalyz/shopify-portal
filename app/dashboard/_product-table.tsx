@@ -190,7 +190,7 @@ export default function ProductTable({ products }: { products: DashboardProduct[
                     </span>
                   </td>
                   <td className="py-3 px-4 text-sm text-gray-700">
-                    ${Number(p.price).toFixed(2)}
+                    {Number(p.price).toFixed(2)}
                   </td>
                   <td className="py-3 px-4 text-sm text-gray-500 hidden sm:table-cell">
                     {p.variantCount > 0

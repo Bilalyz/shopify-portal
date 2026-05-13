@@ -9,9 +9,11 @@ type ExistingImage = { id: string; image_url: string; publicUrl: string }
 type VariantRow = {
   id: string
   dbId?: string
-  option1_name: string; option1_value: string
-  option2_name: string; option2_value: string
-  price: string; sku: string; inventory_qty: string
+  option1_value: string
+  option2_value: string
+  price: string
+  sku: string
+  inventory_qty: string
 }
 
 type InitialData = {
@@ -30,8 +32,7 @@ type Preview = { objectUrl: string; file: File }
 function emptyVariant(): VariantRow {
   return {
     id: crypto.randomUUID(),
-    option1_name: '', option1_value: '',
-    option2_name: '', option2_value: '',
+    option1_value: '', option2_value: '',
     price: '', sku: '', inventory_qty: '',
   }
 }
@@ -45,11 +46,17 @@ export default function EditProductForm({
   initialData,
   initialImages,
   initialVariants,
+  initialOption1Name,
+  initialHasOption2,
+  initialOption2Name,
 }: {
   productId: string
   initialData: InitialData
   initialImages: ExistingImage[]
   initialVariants: VariantRow[]
+  initialOption1Name: string
+  initialHasOption2: boolean
+  initialOption2Name: string
 }) {
   const updateProductWithId = updateProduct.bind(null, productId)
   const [state, dispatch, pending] = useActionState<ProductFormState, FormData>(
@@ -62,9 +69,32 @@ export default function EditProductForm({
   const [previews, setPreviews] = useState<Preview[]>([])
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
-  const [variants, setVariants] = useState<VariantRow[]>(initialVariants)
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const [option1Name, setOption1Name] = useState(initialOption1Name)
+  const [hasOption2, setHasOption2] = useState(initialHasOption2)
+  const [option2Name, setOption2Name] = useState(initialOption2Name)
+  const [variants, setVariants] = useState<VariantRow[]>(initialVariants)
+
+  function handleHasOption2Change(checked: boolean) {
+    setHasOption2(checked)
+    if (!checked) {
+      setVariants((prev) => prev.map((v) => ({ ...v, option2_value: '' })))
+    }
+  }
+
+  function addVariant() {
+    setVariants((prev) => [...prev, emptyVariant()])
+  }
+
+  function removeVariant(id: string) {
+    setVariants((prev) => prev.filter((v) => v.id !== id))
+  }
+
+  function updateVariant(id: string, field: keyof Omit<VariantRow, 'id' | 'dbId'>, value: string) {
+    setVariants((prev) => prev.map((v) => (v.id === id ? { ...v, [field]: value } : v)))
+  }
 
   function removeExistingImage(id: string) {
     setExistingImages((prev) => prev.filter((img) => img.id !== id))
@@ -102,24 +132,20 @@ export default function EditProductForm({
     setPreviews((prev) => prev.filter((_, i) => i !== index))
   }
 
-  function addVariant() {
-    setVariants((prev) => [...prev, emptyVariant()])
-  }
-
-  function removeVariant(id: string) {
-    setVariants((prev) => prev.filter((v) => v.id !== id))
-  }
-
-  function updateVariant(id: string, field: keyof Omit<VariantRow, 'id' | 'dbId'>, value: string) {
-    setVariants((prev) => prev.map((v) => (v.id === id ? { ...v, [field]: value } : v)))
-  }
-
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setUploadError(null)
 
     const formData = new FormData(e.currentTarget)
-    formData.set('variants_json', JSON.stringify(variants))
+
+    // Re-inject shared option names into every variant row before serialising.
+    const enriched = variants.map((v) => ({
+      ...v,
+      option1_name: option1Name.trim() || null,
+      option2_name: hasOption2 ? (option2Name.trim() || null) : null,
+      option2_value: hasOption2 ? v.option2_value : '',
+    }))
+    formData.set('variants_json', JSON.stringify(enriched))
     formData.set('removed_image_ids', JSON.stringify(removedImageIds))
 
     if (previews.length > 0) {
@@ -151,7 +177,6 @@ export default function EditProductForm({
 
   const busy = uploading || pending
   const buttonLabel = uploading ? 'Uploading images…' : pending ? 'Saving…' : 'Save changes'
-
   const showImageZone = existingImages.length === 0 && previews.length === 0
 
   return (
@@ -210,17 +235,11 @@ export default function EditProductForm({
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label htmlFor="price" className={labelClass}>Price</label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">$</span>
-              <input id="price" name="price" type="number" min="0" step="0.01" defaultValue={initialData.price} className={`${inputClass} pl-7`} />
-            </div>
+            <input id="price" name="price" type="number" min="0" step="0.01" defaultValue={initialData.price} className={inputClass} />
           </div>
           <div>
             <label htmlFor="compare_at_price" className={labelClass}>Compare at price</label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">$</span>
-              <input id="compare_at_price" name="compare_at_price" type="number" min="0" step="0.01" defaultValue={initialData.compare_at_price ?? ''} placeholder="—" className={`${inputClass} pl-7`} />
-            </div>
+            <input id="compare_at_price" name="compare_at_price" type="number" min="0" step="0.01" defaultValue={initialData.compare_at_price ?? ''} placeholder="—" className={inputClass} />
           </div>
         </div>
       </section>
@@ -229,7 +248,6 @@ export default function EditProductForm({
       <section className="bg-white border border-gray-200 rounded-xl p-6">
         <h2 className="text-sm font-semibold text-gray-900 mb-5">Images</h2>
 
-        {/* Existing images */}
         {existingImages.length > 0 && (
           <div className="mb-4">
             <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">Current images</p>
@@ -237,11 +255,7 @@ export default function EditProductForm({
               {existingImages.map((img) => (
                 <div key={img.id} className="relative group aspect-square">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={img.publicUrl}
-                    alt=""
-                    className="w-full h-full object-cover rounded-lg border border-gray-200"
-                  />
+                  <img src={img.publicUrl} alt="" className="w-full h-full object-cover rounded-lg border border-gray-200" />
                   <button
                     type="button"
                     onClick={() => removeExistingImage(img.id)}
@@ -258,7 +272,6 @@ export default function EditProductForm({
           </div>
         )}
 
-        {/* New images previews */}
         {previews.length > 0 && (
           <div className="mb-4">
             <p className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">New images</p>
@@ -266,11 +279,7 @@ export default function EditProductForm({
               {previews.map(({ objectUrl, file }, i) => (
                 <div key={objectUrl} className="relative group aspect-square">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={objectUrl}
-                    alt={file.name}
-                    className="w-full h-full object-cover rounded-lg border-2 border-dashed border-gray-300"
-                  />
+                  <img src={objectUrl} alt={file.name} className="w-full h-full object-cover rounded-lg border-2 border-dashed border-gray-300" />
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); removePreview(i) }}
@@ -287,7 +296,6 @@ export default function EditProductForm({
           </div>
         )}
 
-        {/* Drop zone — always shown if no images at all, otherwise a compact add button */}
         {showImageZone ? (
           <div
             onDragOver={handleDragOver}
@@ -325,49 +333,82 @@ export default function EditProductForm({
           </button>
         )}
 
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          multiple
-          onChange={handleFileChange}
-          className="sr-only"
-        />
+        <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={handleFileChange} className="sr-only" />
       </section>
 
       {/* Variants */}
       <section className="bg-white border border-gray-200 rounded-xl p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-sm font-semibold text-gray-900">Variants</h2>
-          <button
-            type="button"
-            onClick={addVariant}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-50 transition-colors duration-150 cursor-pointer"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-            Add variant
-          </button>
+        <h2 className="text-sm font-semibold text-gray-900 mb-5">Variants</h2>
+
+        {/* Option names — defined once, shared across all rows */}
+        <div className="space-y-3 pb-5 mb-5 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <span className="w-32 shrink-0 text-sm text-gray-600">Option 1 name</span>
+            <input
+              type="text"
+              value={option1Name}
+              onChange={(e) => setOption1Name(e.target.value)}
+              placeholder="e.g. Size"
+              className="px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-colors bg-white w-48"
+            />
+          </div>
+
+          <label className="flex items-center gap-2.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={hasOption2}
+              onChange={(e) => handleHasOption2Change(e.target.checked)}
+              className="w-4 h-4 rounded border-gray-300 accent-gray-900 cursor-pointer"
+            />
+            <span className="text-sm text-gray-600">Add second option</span>
+          </label>
+
+          {hasOption2 && (
+            <div className="flex items-center gap-3">
+              <span className="w-32 shrink-0 text-sm text-gray-600">Option 2 name</span>
+              <input
+                type="text"
+                value={option2Name}
+                onChange={(e) => setOption2Name(e.target.value)}
+                placeholder="e.g. Color"
+                className="px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-colors bg-white w-48"
+              />
+            </div>
+          )}
         </div>
 
+        {/* Variant rows */}
         {variants.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-4">
-            No variants — this product has a single option.
+          <p className="text-sm text-gray-400 text-center py-2 mb-4">
+            No variants yet.
           </p>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-3 mb-4">
             {variants.map((v, i) => (
               <EditVariantCard
                 key={v.id}
                 variant={v}
                 index={i}
+                option1Name={option1Name}
+                hasOption2={hasOption2}
+                option2Name={option2Name}
                 onUpdate={updateVariant}
                 onRemove={() => removeVariant(v.id)}
               />
             ))}
           </div>
         )}
+
+        <button
+          type="button"
+          onClick={addVariant}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-50 transition-colors duration-150 cursor-pointer"
+        >
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          Add variant
+        </button>
       </section>
 
       {/* Errors & Submit */}
@@ -399,17 +440,22 @@ export default function EditProductForm({
 function EditVariantCard({
   variant: v,
   index,
+  option1Name,
+  hasOption2,
+  option2Name,
   onUpdate,
   onRemove,
 }: {
   variant: VariantRow
   index: number
+  option1Name: string
+  hasOption2: boolean
+  option2Name: string
   onUpdate: (id: string, field: keyof Omit<VariantRow, 'id' | 'dbId'>, value: string) => void
   onRemove: () => void
 }) {
-  const inputClass =
-    'w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-colors bg-white'
-  const miniLabelClass = 'block text-xs font-medium text-gray-500 mb-1'
+  const ic = 'w-full px-3 py-2 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-colors bg-white'
+  const lc = 'block text-xs font-medium text-gray-500 mb-1'
 
   return (
     <div className="border border-gray-200 rounded-xl p-4">
@@ -430,56 +476,57 @@ function EditVariantCard({
         </button>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
-        {(
-          [
-            ['option1_name',  'Option 1 name',  'e.g. Size'],
-            ['option1_value', 'Option 1 value', 'e.g. Small'],
-            ['option2_name',  'Option 2 name',  'e.g. Color'],
-            ['option2_value', 'Option 2 value', 'e.g. Red'],
-          ] as const
-        ).map(([field, lbl, placeholder]) => (
-          <div key={field}>
-            <label className={miniLabelClass}>{lbl}</label>
+      {/* Option values — labels come from the shared option names above */}
+      <div className={`grid gap-3 mb-3 ${hasOption2 ? 'grid-cols-2' : 'grid-cols-1 sm:grid-cols-2'}`}>
+        <div>
+          <label className={lc}>{option1Name || 'Option 1'}</label>
+          <input
+            type="text"
+            placeholder="e.g. Small"
+            value={v.option1_value}
+            onChange={(e) => onUpdate(v.id, 'option1_value', e.target.value)}
+            className={ic}
+          />
+        </div>
+        {hasOption2 && (
+          <div>
+            <label className={lc}>{option2Name || 'Option 2'}</label>
             <input
               type="text"
-              placeholder={placeholder}
-              value={v[field]}
-              onChange={(e) => onUpdate(v.id, field, e.target.value)}
-              className={inputClass}
+              placeholder="e.g. Red"
+              value={v.option2_value}
+              onChange={(e) => onUpdate(v.id, 'option2_value', e.target.value)}
+              className={ic}
             />
           </div>
-        ))}
+        )}
       </div>
 
       <div className="grid grid-cols-3 gap-3">
         <div>
-          <label className={miniLabelClass}>Price</label>
-          <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">$</span>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              placeholder="0.00"
-              value={v.price}
-              onChange={(e) => onUpdate(v.id, 'price', e.target.value)}
-              className={`${inputClass} pl-6`}
-            />
-          </div>
+          <label className={lc}>Price</label>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            placeholder="0.00"
+            value={v.price}
+            onChange={(e) => onUpdate(v.id, 'price', e.target.value)}
+            className={ic}
+          />
         </div>
         <div>
-          <label className={miniLabelClass}>SKU</label>
+          <label className={lc}>SKU</label>
           <input
             type="text"
             placeholder="SKU-001"
             value={v.sku}
             onChange={(e) => onUpdate(v.id, 'sku', e.target.value)}
-            className={inputClass}
+            className={ic}
           />
         </div>
         <div>
-          <label className={miniLabelClass}>Inventory</label>
+          <label className={lc}>Inventory</label>
           <input
             type="number"
             min="0"
@@ -487,7 +534,7 @@ function EditVariantCard({
             placeholder="0"
             value={v.inventory_qty}
             onChange={(e) => onUpdate(v.id, 'inventory_qty', e.target.value)}
-            className={inputClass}
+            className={ic}
           />
         </div>
       </div>

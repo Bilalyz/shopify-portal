@@ -93,9 +93,8 @@ export async function createProduct(
 
   const variantRows = variantInputs
     .filter((v) =>
-      v.option1_name.trim() || v.option1_value.trim() ||
-      v.option2_name.trim() || v.option2_value.trim() ||
-      v.sku.trim() || parseFloat(v.price) > 0 || parseInt(v.inventory_qty) > 0
+      v.option1_value?.trim() || v.option2_value?.trim() ||
+      v.sku?.trim() || parseFloat(v.price) > 0 || parseInt(v.inventory_qty) > 0
     )
     .map((v) => ({
       product_id: product.id,
@@ -240,7 +239,10 @@ export async function updateProduct(
 
   // Insert new variants
   const toInsert = variantInputs
-    .filter((v) => !v.dbId)
+    .filter((v) => !v.dbId && (
+      v.option1_value?.trim() || v.option2_value?.trim() ||
+      v.sku?.trim() || parseFloat(v.price) > 0 || parseInt(v.inventory_qty) > 0
+    ))
     .map((v) => ({
       product_id:    productId,
       option1_name:  v.option1_name.trim()  || null,
