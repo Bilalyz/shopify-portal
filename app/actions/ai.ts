@@ -4,6 +4,10 @@ import Anthropic from '@anthropic-ai/sdk'
 
 const MODEL = 'claude-sonnet-4-6'
 
+function stripFences(raw: string): string {
+  return raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+}
+
 export async function analyzeImages(
   imageUrls: string[],
   context: { title: string; productType: string; language: string }
@@ -66,7 +70,7 @@ export async function enrichProduct(data: {
 
   const msg = await client.messages.create({
     model: MODEL,
-    max_tokens: 1024,
+    max_tokens: 600,
     messages: [{
       role: 'user',
       content: `You are a fashion copywriter. Return a JSON object with exactly this 1 key.
@@ -80,12 +84,12 @@ Brand voice: ${data.brandVoice || 'Professional and elegant'}
 
 Return ONLY valid JSON, no markdown fences, no explanation:
 {
-  "description": "150-300 word product description in ${langLabel}, SEO-optimized, benefit-focused, no generic filler phrases"
+  "description": "150-200 word product description in ${langLabel}, benefit-focused, no generic filler phrases"
 }`,
     }],
   })
 
-  const raw = (msg.content[0] as { type: 'text'; text: string }).text.trim()
+  const raw = stripFences((msg.content[0] as { type: 'text'; text: string }).text.trim())
   const json = JSON.parse(raw) as Record<string, unknown>
 
   return {

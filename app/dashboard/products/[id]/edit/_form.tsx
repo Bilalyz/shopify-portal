@@ -304,6 +304,9 @@ export default function EditProductForm({
               onChange={(e) => setDescription(e.target.value)}
               className={`${inputClass} resize-none`}
             />
+            {aiError && (
+              <p className="text-xs text-rose-600 mt-1">{aiError}</p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">

@@ -238,6 +238,9 @@ export default function NewProductForm({ presets }: { presets: OrgPresets }) {
               placeholder="Describe your product…"
               className={`${inputClass} resize-none`}
             />
+            {aiError && (
+              <p className="text-xs text-rose-600 mt-1">{aiError}</p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
