@@ -43,9 +43,6 @@ Write in ${langLabel}. No headings, no labels — just the description.`,
 
 export type EnrichResult = {
   description: string
-  seoTitle: string
-  seoDescription: string
-  suggestedTags: string[]
 }
 
 export async function enrichProduct(data: {
@@ -57,7 +54,6 @@ export async function enrichProduct(data: {
   colors: string[]
   brandVoice: string
   language: string
-  tagPresets: string[]
 }): Promise<EnrichResult> {
   const langLabel =
     data.language === 'he' ? 'Hebrew' :
@@ -67,16 +63,12 @@ export async function enrichProduct(data: {
     ? data.imageDescriptions.map((d, i) => `Image ${i + 1}: ${d}`).join('\n')
     : 'No image descriptions available.'
 
-  const presetsText = data.tagPresets.length > 0
-    ? data.tagPresets.join(', ')
-    : 'None'
-
   const msg = await client.messages.create({
     model: MODEL,
     max_tokens: 1024,
     messages: [{
       role: 'user',
-      content: `You are a fashion copywriter. Return a JSON object with exactly these 4 keys.
+      content: `You are a fashion copywriter. Return a JSON object with exactly this 1 key.
 
 Product title: ${data.title}
 Product type: ${data.productType || 'Fashion item'}
@@ -84,14 +76,10 @@ Available sizes: ${data.sizes.length > 0 ? data.sizes.join(', ') : 'N/A'}
 Available colors: ${data.colors.length > 0 ? data.colors.join(', ') : 'N/A'}
 Image descriptions:\n${imagesText}
 Brand voice: ${data.brandVoice || 'Professional and elegant'}
-Available tags (choose ONLY from this list): ${presetsText}
 
 Return ONLY valid JSON, no markdown fences, no explanation:
 {
-  "description": "150-300 word product description in ${langLabel}, SEO-optimized, benefit-focused, no generic filler phrases",
-  "seoTitle": "Under 60 chars, main keyword first, in ${langLabel}",
-  "seoDescription": "120-155 chars, benefit-focused with subtle call-to-action, in ${langLabel}",
-  "suggestedTags": ["3 to 5 tags chosen strictly from the available tags list above"]
+  "description": "150-300 word product description in ${langLabel}, SEO-optimized, benefit-focused, no generic filler phrases"
 }`,
     }],
   })
@@ -101,8 +89,5 @@ Return ONLY valid JSON, no markdown fences, no explanation:
 
   return {
     description: String(json.description ?? ''),
-    seoTitle: String(json.seoTitle ?? ''),
-    seoDescription: String(json.seoDescription ?? ''),
-    suggestedTags: Array.isArray(json.suggestedTags) ? json.suggestedTags.map(String) : [],
   }
 }

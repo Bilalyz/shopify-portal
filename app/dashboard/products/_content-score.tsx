@@ -3,8 +3,6 @@
 export type ContentScoreProps = {
   hasTitle: boolean
   descriptionWordCount: number
-  seoTitle: string
-  seoDescription: string
   tagCount: number
   imageCount: number
   allImagesHaveAltText: boolean
@@ -15,13 +13,9 @@ export type ContentScoreProps = {
 type Check = { label: string; points: number; pass: boolean }
 
 function buildChecks(p: ContentScoreProps): Check[] {
-  const seoTitleLen = p.seoTitle.trim().length
-  const seoDescLen = p.seoDescription.trim().length
   return [
     { label: 'Has title',                 points: 1, pass: p.hasTitle },
     { label: 'Description (150+ words)',  points: 2, pass: p.descriptionWordCount >= 150 },
-    { label: 'SEO title (< 60 chars)',    points: 1, pass: seoTitleLen > 0 && seoTitleLen < 60 },
-    { label: 'Meta description (120–155 chars)', points: 1, pass: seoDescLen >= 120 && seoDescLen <= 155 },
     { label: '3–5 tags selected',         points: 1, pass: p.tagCount >= 3 && p.tagCount <= 5 },
     { label: 'At least 1 image',          points: 1, pass: p.imageCount > 0 },
     { label: 'All images have alt text',  points: 1, pass: p.imageCount > 0 && p.allImagesHaveAltText },
@@ -37,8 +31,8 @@ export default function ContentScore(props: ContentScoreProps) {
   const pct = Math.round((score / max) * 100)
 
   const color =
-    score >= 8 ? 'emerald' :
-    score >= 5 ? 'amber' : 'rose'
+    score >= 6 ? 'emerald' :
+    score >= 4 ? 'amber' : 'rose'
 
   const barClass = {
     emerald: 'bg-emerald-500',

@@ -28,7 +28,7 @@ type OrgPresets = {
   brandVoice: string
 }
 
-type AiTask = 'description' | 'seo' | null
+type AiTask = 'description' | null
 
 function toTitleCase(s: string): string {
   return s.trim().replace(/\b\w/g, (c) => c.toUpperCase())
@@ -73,62 +73,31 @@ export default function NewProductForm({ presets }: { presets: OrgPresets }) {
   const [variants, setVariants] = useState<VariantRow[]>([])
 
   const [selectedTags, setSelectedTags] = useState<string[]>([])
+  const [title, setTitle] = useState('')
+  const [productType, setProductType] = useState('')
   const [description, setDescription] = useState('')
-  const [seoTitle, setSeoTitle] = useState('')
-  const [seoDescription, setSeoDescription] = useState('')
+  const [hasPrice, setHasPrice] = useState(false)
 
   const [aiTask, setAiTask] = useState<AiTask>(null)
   const [aiError, setAiError] = useState<string | null>(null)
-
-  // Content score helpers
-  const [hasTitle, setHasTitle] = useState(false)
-  const [hasPrice, setHasPrice] = useState(false)
-
-  const titleRef = useRef<HTMLInputElement>(null)
-  const productTypeRef = useRef<HTMLInputElement>(null)
 
   async function generateDescription() {
     setAiTask('description')
     setAiError(null)
     try {
       const result = await enrichProduct({
-        title: titleRef.current?.value.trim() ?? '',
-        productType: productTypeRef.current?.value.trim() ?? '',
+        title,
+        productType,
         imageDescriptions: [],
         tags: selectedTags,
         sizes: presets.sizeOptions,
         colors: presets.colorOptions,
         brandVoice: presets.brandVoice,
         language: presets.language,
-        tagPresets: presets.tagPresets,
       })
       setDescription(result.description)
     } catch (err) {
       setAiError(err instanceof Error ? err.message : 'Failed to generate description.')
-    } finally {
-      setAiTask(null)
-    }
-  }
-
-  async function generateSeo() {
-    setAiTask('seo')
-    setAiError(null)
-    try {
-      const result = await enrichProduct({
-        title: titleRef.current?.value.trim() ?? '',
-        productType: productTypeRef.current?.value.trim() ?? '',
-        imageDescriptions: [],
-        tags: selectedTags,
-        sizes: presets.sizeOptions,
-        colors: presets.colorOptions,
-        brandVoice: presets.brandVoice,
-        language: presets.language,
-        tagPresets: presets.tagPresets,
-      })
-      setSeoTitle(result.seoTitle)
-      setSeoDescription(result.seoDescription)
-    } catch (err) {
-      setAiError(err instanceof Error ? err.message : 'Failed to generate SEO fields.')
     } finally {
       setAiTask(null)
     }
@@ -239,13 +208,13 @@ export default function NewProductForm({ presets }: { presets: OrgPresets }) {
               Title <span className="text-rose-500">*</span>
             </label>
             <input
-              ref={titleRef}
               id="title"
               name="title"
               type="text"
               required
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Silk Evening Blouse"
-              onChange={(e) => setHasTitle(e.target.value.trim().length > 0)}
               className={inputClass}
             />
           </div>
@@ -275,10 +244,11 @@ export default function NewProductForm({ presets }: { presets: OrgPresets }) {
             <div>
               <label htmlFor="product_type" className={`${labelClass} mb-1.5`}>Product type</label>
               <input
-                ref={productTypeRef}
                 id="product_type"
                 name="product_type"
                 type="text"
+                value={productType}
+                onChange={(e) => setProductType(e.target.value)}
                 list={presets.productTypes.length > 0 ? 'product-types-list' : undefined}
                 placeholder="e.g. Tops"
                 className={inputClass}
@@ -416,69 +386,6 @@ export default function NewProductForm({ presets }: { presets: OrgPresets }) {
         )}
       </section>
 
-      {/* SEO */}
-      <section className="bg-white border border-gray-200 rounded-xl p-6">
-        <h2 className="text-sm font-semibold text-gray-900 mb-5">SEO</h2>
-
-        <div className="space-y-4">
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label htmlFor="seo_title" className={labelClass}>SEO title</label>
-              <div className="flex items-center gap-3">
-                <AiButton
-                  task="seo"
-                  activeTask={aiTask}
-                  hasValue={!!(seoTitle || seoDescription)}
-                  onClick={generateSeo}
-                />
-                <span className={`text-xs tabular-nums ${seoTitle.length > 60 ? 'text-rose-500 font-medium' : 'text-gray-400'}`}>
-                  {seoTitle.length}/60
-                </span>
-              </div>
-            </div>
-            <input
-              id="seo_title"
-              name="seo_title"
-              type="text"
-              value={seoTitle}
-              onChange={(e) => setSeoTitle(e.target.value)}
-              placeholder="Main keyword first, under 60 chars…"
-              className={inputClass}
-            />
-            {seoTitle.length > 60 && (
-              <p className="text-xs text-rose-500 mt-1">Over 60 characters — Google may truncate this.</p>
-            )}
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label htmlFor="seo_description" className={labelClass}>Meta description</label>
-              <span className={`text-xs tabular-nums ${
-                seoDescription.length > 155 ? 'text-rose-500 font-medium' :
-                seoDescription.length > 0 && seoDescription.length < 120 ? 'text-amber-500' : 'text-gray-400'
-              }`}>
-                {seoDescription.length}/155
-              </span>
-            </div>
-            <textarea
-              id="seo_description"
-              name="seo_description"
-              rows={2}
-              value={seoDescription}
-              onChange={(e) => setSeoDescription(e.target.value)}
-              placeholder="Benefit-focused, 120–155 chars…"
-              className={`${inputClass} resize-none`}
-            />
-            {seoDescription.length > 155 && (
-              <p className="text-xs text-rose-500 mt-1">Over 155 characters — Google may truncate this.</p>
-            )}
-            {seoDescription.length > 0 && seoDescription.length < 120 && (
-              <p className="text-xs text-amber-500 mt-1">Aim for 120–155 characters.</p>
-            )}
-          </div>
-        </div>
-      </section>
-
       {/* Variants */}
       <section className="bg-white border border-gray-200 rounded-xl p-6">
         <h2 className="text-sm font-semibold text-gray-900 mb-5">Variants</h2>
@@ -554,10 +461,8 @@ export default function NewProductForm({ presets }: { presets: OrgPresets }) {
 
       {/* Content quality score */}
       <ContentScore
-        hasTitle={hasTitle}
+        hasTitle={title.trim().length > 0}
         descriptionWordCount={descWords}
-        seoTitle={seoTitle}
-        seoDescription={seoDescription}
         tagCount={selectedTags.length}
         imageCount={previews.length}
         allImagesHaveAltText={allImagesHaveAlt}

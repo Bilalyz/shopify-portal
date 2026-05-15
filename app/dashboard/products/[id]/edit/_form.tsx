@@ -28,8 +28,6 @@ type InitialData = {
   status: string
   price: number
   compare_at_price: number | null
-  seo_title: string | null
-  seo_description: string | null
 }
 
 type OrgPresets = {
@@ -43,7 +41,7 @@ type OrgPresets = {
 
 type Preview = { objectUrl: string; file: File }
 
-type AiTask = 'description' | 'seo' | 'altText' | null
+type AiTask = 'description' | 'altText' | null
 
 function toTitleCase(s: string): string {
   return s.trim().replace(/\b\w/g, (c) => c.toUpperCase())
@@ -113,17 +111,14 @@ export default function EditProductForm({
   const [variants, setVariants] = useState<VariantRow[]>(initialVariants)
 
   const [selectedTags, setSelectedTags] = useState<string[]>(initialData.tags ?? [])
+  const [title, setTitle] = useState(initialData.title)
+  const [productType, setProductType] = useState(initialData.product_type ?? '')
   const [description, setDescription] = useState(initialData.description ?? '')
-  const [seoTitle, setSeoTitle] = useState(initialData.seo_title ?? '')
-  const [seoDescription, setSeoDescription] = useState(initialData.seo_description ?? '')
 
   const [aiTask, setAiTask] = useState<AiTask>(null)
   const [aiError, setAiError] = useState<string | null>(null)
 
   const [hasPrice, setHasPrice] = useState(initialData.price > 0)
-
-  const titleRef = useRef<HTMLInputElement>(null)
-  const productTypeRef = useRef<HTMLInputElement>(null)
 
   async function generateDescription() {
     setAiTask('description')
@@ -131,44 +126,18 @@ export default function EditProductForm({
     try {
       const imageDescriptions = Object.values(existingAltTexts).filter(Boolean)
       const result = await enrichProduct({
-        title: titleRef.current?.value.trim() ?? initialData.title,
-        productType: productTypeRef.current?.value.trim() ?? '',
+        title,
+        productType,
         imageDescriptions,
         tags: selectedTags,
         sizes: presets.sizeOptions,
         colors: presets.colorOptions,
         brandVoice: presets.brandVoice,
         language: presets.language,
-        tagPresets: presets.tagPresets,
       })
       setDescription(result.description)
     } catch (err) {
       setAiError(err instanceof Error ? err.message : 'Failed to generate description.')
-    } finally {
-      setAiTask(null)
-    }
-  }
-
-  async function generateSeo() {
-    setAiTask('seo')
-    setAiError(null)
-    try {
-      const imageDescriptions = Object.values(existingAltTexts).filter(Boolean)
-      const result = await enrichProduct({
-        title: titleRef.current?.value.trim() ?? initialData.title,
-        productType: productTypeRef.current?.value.trim() ?? '',
-        imageDescriptions,
-        tags: selectedTags,
-        sizes: presets.sizeOptions,
-        colors: presets.colorOptions,
-        brandVoice: presets.brandVoice,
-        language: presets.language,
-        tagPresets: presets.tagPresets,
-      })
-      setSeoTitle(result.seoTitle)
-      setSeoDescription(result.seoDescription)
-    } catch (err) {
-      setAiError(err instanceof Error ? err.message : 'Failed to generate SEO fields.')
     } finally {
       setAiTask(null)
     }
@@ -179,8 +148,6 @@ export default function EditProductForm({
     setAiTask('altText')
     setAiError(null)
     try {
-      const title = titleRef.current?.value.trim() ?? initialData.title
-      const productType = productTypeRef.current?.value.trim() ?? ''
       const urls = existingImages.map((img) => img.publicUrl)
       const altTexts = await analyzeImages(urls, { title, productType, language: presets.language })
       const newMap: Record<string, string> = {}
@@ -309,12 +276,12 @@ export default function EditProductForm({
               Title <span className="text-rose-500">*</span>
             </label>
             <input
-              ref={titleRef}
               id="title"
               name="title"
               type="text"
               required
-              defaultValue={initialData.title}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
               className={inputClass}
             />
           </div>
@@ -343,12 +310,12 @@ export default function EditProductForm({
             <div>
               <label htmlFor="product_type" className={`${labelClass} mb-1.5`}>Product type</label>
               <input
-                ref={productTypeRef}
                 id="product_type"
                 name="product_type"
                 type="text"
+                value={productType}
+                onChange={(e) => setProductType(e.target.value)}
                 list={presets.productTypes.length > 0 ? 'product-types-list' : undefined}
-                defaultValue={initialData.product_type ?? ''}
                 className={inputClass}
               />
               {presets.productTypes.length > 0 && (
@@ -540,69 +507,6 @@ export default function EditProductForm({
         <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={handleFileChange} className="sr-only" />
       </section>
 
-      {/* SEO */}
-      <section className="bg-white border border-gray-200 rounded-xl p-6">
-        <h2 className="text-sm font-semibold text-gray-900 mb-5">SEO</h2>
-
-        <div className="space-y-4">
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label htmlFor="seo_title" className={labelClass}>SEO title</label>
-              <div className="flex items-center gap-3">
-                <AiButton
-                  task="seo"
-                  activeTask={aiTask}
-                  hasValue={!!(seoTitle || seoDescription)}
-                  onClick={generateSeo}
-                />
-                <span className={`text-xs tabular-nums ${seoTitle.length > 60 ? 'text-rose-500 font-medium' : 'text-gray-400'}`}>
-                  {seoTitle.length}/60
-                </span>
-              </div>
-            </div>
-            <input
-              id="seo_title"
-              name="seo_title"
-              type="text"
-              value={seoTitle}
-              onChange={(e) => setSeoTitle(e.target.value)}
-              placeholder="Main keyword first, under 60 chars…"
-              className={inputClass}
-            />
-            {seoTitle.length > 60 && (
-              <p className="text-xs text-rose-500 mt-1">Over 60 characters — Google may truncate this.</p>
-            )}
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label htmlFor="seo_description" className={labelClass}>Meta description</label>
-              <span className={`text-xs tabular-nums ${
-                seoDescription.length > 155 ? 'text-rose-500 font-medium' :
-                seoDescription.length > 0 && seoDescription.length < 120 ? 'text-amber-500' : 'text-gray-400'
-              }`}>
-                {seoDescription.length}/155
-              </span>
-            </div>
-            <textarea
-              id="seo_description"
-              name="seo_description"
-              rows={2}
-              value={seoDescription}
-              onChange={(e) => setSeoDescription(e.target.value)}
-              placeholder="Benefit-focused, 120–155 chars…"
-              className={`${inputClass} resize-none`}
-            />
-            {seoDescription.length > 155 && (
-              <p className="text-xs text-rose-500 mt-1">Over 155 characters — Google may truncate this.</p>
-            )}
-            {seoDescription.length > 0 && seoDescription.length < 120 && (
-              <p className="text-xs text-amber-500 mt-1">Aim for 120–155 characters.</p>
-            )}
-          </div>
-        </div>
-      </section>
-
       {/* Variants */}
       <section className="bg-white border border-gray-200 rounded-xl p-6">
         <h2 className="text-sm font-semibold text-gray-900 mb-5">Variants</h2>
@@ -678,10 +582,8 @@ export default function EditProductForm({
 
       {/* Content quality score */}
       <ContentScore
-        hasTitle={initialData.title.length > 0}
+        hasTitle={title.trim().length > 0}
         descriptionWordCount={descWords}
-        seoTitle={seoTitle}
-        seoDescription={seoDescription}
         tagCount={selectedTags.length}
         imageCount={totalImages}
         allImagesHaveAltText={allImagesHaveAlt}

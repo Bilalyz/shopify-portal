@@ -33,7 +33,7 @@ export default async function EditProductPage({
   ] = await Promise.all([
     supabase
       .from('products')
-      .select('title, description, product_type, vendor, tags, status, price, compare_at_price, seo_title, seo_description, created_at, updated_at')
+      .select('title, description, product_type, vendor, tags, status, price, compare_at_price, created_at, updated_at')
       .eq('id', id)
       .eq('org_id', orgId)
       .single(),

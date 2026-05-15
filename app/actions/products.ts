@@ -65,8 +65,6 @@ export async function createProduct(
       status,
       price,
       compare_at_price,
-      seo_title: (formData.get('seo_title') as string | null)?.trim() || null,
-      seo_description: (formData.get('seo_description') as string | null)?.trim() || null,
     })
     .select('id')
     .single()
@@ -170,8 +168,6 @@ export async function updateProduct(
       status,
       price,
       compare_at_price,
-      seo_title: (formData.get('seo_title') as string | null)?.trim() || null,
-      seo_description: (formData.get('seo_description') as string | null)?.trim() || null,
     })
     .eq('id', productId)
     .eq('org_id', orgContext.current.orgId)
