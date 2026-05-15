@@ -641,7 +641,7 @@ function AiButton({
       type="button"
       onClick={onClick}
       disabled={isDisabled}
-      className="inline-flex items-center gap-1 text-xs font-medium text-violet-600 hover:text-violet-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+      className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-md disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
     >
       {isLoading ? (
         <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">

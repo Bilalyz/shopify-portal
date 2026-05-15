@@ -2,7 +2,6 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 
-const client = new Anthropic()
 const MODEL = 'claude-sonnet-4-6'
 
 export async function analyzeImages(
@@ -11,6 +10,7 @@ export async function analyzeImages(
 ): Promise<string[]> {
   if (imageUrls.length === 0) return []
 
+  const client = new Anthropic()
   const langLabel =
     context.language === 'he' ? 'Hebrew' :
     context.language === 'ar' ? 'Arabic' : 'English'
@@ -55,6 +55,7 @@ export async function enrichProduct(data: {
   brandVoice: string
   language: string
 }): Promise<EnrichResult> {
+  const client = new Anthropic()
   const langLabel =
     data.language === 'he' ? 'Hebrew' :
     data.language === 'ar' ? 'Arabic' : 'English'
