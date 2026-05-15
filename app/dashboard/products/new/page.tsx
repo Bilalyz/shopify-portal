@@ -14,12 +14,34 @@ export default async function NewProductPage() {
   const orgContext = await getOrgContext()
   if (!orgContext) redirect('/orgs')
 
+  const orgId = orgContext.current.orgId
+
+  const [{ data: settings }, { data: org }] = await Promise.all([
+    supabase
+      .from('org_settings')
+      .select('tag_presets, product_types, size_options, color_options')
+      .eq('org_id', orgId)
+      .maybeSingle(),
+    supabase
+      .from('organizations')
+      .select('default_vendor')
+      .eq('id', orgId)
+      .single(),
+  ])
+
+  const presets = {
+    tagPresets:   settings?.tag_presets   ?? [],
+    productTypes: settings?.product_types ?? [],
+    sizeOptions:  settings?.size_options  ?? [],
+    colorOptions: settings?.color_options ?? [],
+    defaultVendor: org?.default_vendor ?? null,
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <DashboardNav />
 
       <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Breadcrumb */}
         <Link
           href="/dashboard"
           className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition-colors duration-150 mb-6"
@@ -31,7 +53,7 @@ export default async function NewProductPage() {
         </Link>
 
         <h1 className="text-xl font-semibold text-gray-900 mb-8">New product</h1>
-        <NewProductForm />
+        <NewProductForm presets={presets} />
       </main>
     </div>
   )

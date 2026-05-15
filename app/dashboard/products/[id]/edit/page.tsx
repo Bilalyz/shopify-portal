@@ -22,26 +22,45 @@ export default async function EditProductPage({
   const orgContext = await getOrgContext()
   if (!orgContext) redirect('/orgs')
 
-  const { data: product } = await supabase
-    .from('products')
-    .select('title, description, product_type, vendor, tags, status, price, compare_at_price, created_at, updated_at')
-    .eq('id', id)
-    .eq('org_id', orgContext.current.orgId)
-    .single()
+  const orgId = orgContext.current.orgId
+
+  const [
+    { data: product },
+    { data: variantRows },
+    { data: imageRows },
+    { data: settings },
+  ] = await Promise.all([
+    supabase
+      .from('products')
+      .select('title, description, product_type, vendor, tags, status, price, compare_at_price, created_at, updated_at')
+      .eq('id', id)
+      .eq('org_id', orgId)
+      .single(),
+    supabase
+      .from('variants')
+      .select('id, option1_name, option1_value, option2_name, option2_value, price, sku, inventory_qty')
+      .eq('product_id', id)
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('product_images')
+      .select('id, image_url')
+      .eq('product_id', id)
+      .order('position', { ascending: true }),
+    supabase
+      .from('org_settings')
+      .select('tag_presets, product_types, size_options, color_options')
+      .eq('org_id', orgId)
+      .maybeSingle(),
+  ])
 
   if (!product) notFound()
 
-  const { data: variantRows } = await supabase
-    .from('variants')
-    .select('id, option1_name, option1_value, option2_name, option2_value, price, sku, inventory_qty')
-    .eq('product_id', id)
-    .order('created_at', { ascending: true })
-
-  const { data: imageRows } = await supabase
-    .from('product_images')
-    .select('id, image_url')
-    .eq('product_id', id)
-    .order('position', { ascending: true })
+  const presets = {
+    tagPresets:   settings?.tag_presets   ?? [],
+    productTypes: settings?.product_types ?? [],
+    sizeOptions:  settings?.size_options  ?? [],
+    colorOptions: settings?.color_options ?? [],
+  }
 
   const existingImages = (imageRows ?? []).map((img) => ({
     id: img.id,
@@ -69,7 +88,6 @@ export default async function EditProductPage({
       <DashboardNav />
 
       <main className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Breadcrumb */}
         <Link
           href="/dashboard"
           className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition-colors duration-150 mb-6"
@@ -116,6 +134,7 @@ export default async function EditProductPage({
           initialOption1Name={initialOption1Name}
           initialHasOption2={initialHasOption2}
           initialOption2Name={initialOption2Name}
+          presets={presets}
         />
       </main>
     </div>

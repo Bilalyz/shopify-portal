@@ -35,6 +35,14 @@ export default async function DashboardNav() {
           </Link>
 
           <div className="flex items-center gap-4">
+            {orgContext && ['super_admin', 'owner', 'admin'].includes(orgContext.current.role) && (
+              <Link
+                href="/dashboard/settings"
+                className="text-sm text-gray-500 hover:text-gray-900 transition-colors duration-150"
+              >
+                Settings
+              </Link>
+            )}
             {user && (
               <div className="hidden sm:flex items-center gap-2">
                 <span className="text-xs text-gray-400 truncate max-w-44">{user.email}</span>

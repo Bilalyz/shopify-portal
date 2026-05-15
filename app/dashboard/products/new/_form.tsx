@@ -3,6 +3,7 @@
 import { useActionState, startTransition, useState, useRef } from 'react'
 import { createProduct, type ProductFormState } from '@/app/actions/products'
 import { createClient } from '@/lib/supabase/client'
+import TagPicker from '@/app/dashboard/products/_tag-picker'
 
 type Preview = { objectUrl: string; file: File }
 
@@ -13,6 +14,14 @@ type VariantRow = {
   price: string
   sku: string
   inventory_qty: string
+}
+
+type OrgPresets = {
+  tagPresets: string[]
+  productTypes: string[]
+  sizeOptions: string[]
+  colorOptions: string[]
+  defaultVendor: string | null
 }
 
 function toTitleCase(s: string): string {
@@ -27,11 +36,19 @@ function emptyVariant(): VariantRow {
   }
 }
 
+// Returns the datalist ID for a given option name, if presets exist
+function getOptionListId(optionName: string, sizeOptions: string[], colorOptions: string[]): string | undefined {
+  const lower = optionName.trim().toLowerCase()
+  if (lower === 'size' && sizeOptions.length > 0) return 'size-options-list'
+  if (lower === 'color' && colorOptions.length > 0) return 'color-options-list'
+  return undefined
+}
+
 const inputClass =
   'w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-colors bg-white'
 const labelClass = 'block text-sm font-medium text-gray-700 mb-1.5'
 
-export default function NewProductForm() {
+export default function NewProductForm({ presets }: { presets: OrgPresets }) {
   const [state, dispatch, pending] = useActionState<ProductFormState, FormData>(
     createProduct,
     undefined
@@ -47,6 +64,9 @@ export default function NewProductForm() {
   const [hasOption2, setHasOption2] = useState(false)
   const [option2Name, setOption2Name] = useState('')
   const [variants, setVariants] = useState<VariantRow[]>([])
+
+  // Controlled tag state — injected into formData on submit
+  const [selectedTags, setSelectedTags] = useState<string[]>([])
 
   function handleHasOption2Change(checked: boolean) {
     setHasOption2(checked)
@@ -104,8 +124,9 @@ export default function NewProductForm() {
 
     const formData = new FormData(e.currentTarget)
 
-    // Re-inject shared option names into every variant row before serialising.
-    // The server action and Shopify CSV export both expect option1_name per row.
+    // Inject controlled state into formData
+    formData.set('tags', selectedTags.join(', '))
+
     const enriched = variants.map((v) => ({
       ...v,
       option1_name: option1Name.trim() || null,
@@ -146,6 +167,18 @@ export default function NewProductForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
+      {/* Datalists for variant option values */}
+      {presets.sizeOptions.length > 0 && (
+        <datalist id="size-options-list">
+          {presets.sizeOptions.map((s) => <option key={s} value={s} />)}
+        </datalist>
+      )}
+      {presets.colorOptions.length > 0 && (
+        <datalist id="color-options-list">
+          {presets.colorOptions.map((c) => <option key={c} value={c} />)}
+        </datalist>
+      )}
+
       {/* Product Details */}
       <section className="bg-white border border-gray-200 rounded-xl p-6">
         <h2 className="text-sm font-semibold text-gray-900 mb-5">Product details</h2>
@@ -170,17 +203,45 @@ export default function NewProductForm() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label htmlFor="product_type" className={labelClass}>Product type</label>
-              <input id="product_type" name="product_type" type="text" placeholder="e.g. Tops" className={inputClass} />
+              <input
+                id="product_type"
+                name="product_type"
+                type="text"
+                list={presets.productTypes.length > 0 ? 'product-types-list' : undefined}
+                placeholder="e.g. Tops"
+                className={inputClass}
+              />
+              {presets.productTypes.length > 0 && (
+                <datalist id="product-types-list">
+                  {presets.productTypes.map((t) => <option key={t} value={t} />)}
+                </datalist>
+              )}
             </div>
             <div>
               <label htmlFor="vendor" className={labelClass}>Vendor</label>
-              <input id="vendor" name="vendor" type="text" placeholder="e.g. Mona Moda" className={inputClass} />
+              <input
+                id="vendor"
+                name="vendor"
+                type="text"
+                defaultValue={presets.defaultVendor ?? ''}
+                placeholder="e.g. Mona Moda"
+                className={inputClass}
+              />
             </div>
           </div>
 
           <div>
-            <label htmlFor="tags" className={labelClass}>Tags <span className="text-gray-400 font-normal">(comma-separated)</span></label>
-            <input id="tags" name="tags" type="text" placeholder="e.g. silk, evening, summer" className={inputClass} />
+            <label className={labelClass}>
+              Tags
+              {presets.tagPresets.length === 0 && (
+                <span className="text-gray-400 font-normal ml-1">(comma-separated)</span>
+              )}
+            </label>
+            <TagPicker
+              presets={presets.tagPresets}
+              selected={selectedTags}
+              onChange={setSelectedTags}
+            />
           </div>
 
           <div>
@@ -265,7 +326,6 @@ export default function NewProductForm() {
       <section className="bg-white border border-gray-200 rounded-xl p-6">
         <h2 className="text-sm font-semibold text-gray-900 mb-5">Variants</h2>
 
-        {/* Option names — defined once, shared across all rows */}
         <div className="space-y-3 pb-5 mb-5 border-b border-gray-100">
           <div className="flex items-center gap-3">
             <span className="w-32 shrink-0 text-sm text-gray-600">Option 1 name</span>
@@ -302,11 +362,8 @@ export default function NewProductForm() {
           )}
         </div>
 
-        {/* Variant rows */}
         {variants.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-2 mb-4">
-            No variants yet.
-          </p>
+          <p className="text-sm text-gray-400 text-center py-2 mb-4">No variants yet.</p>
         ) : (
           <div className="space-y-3 mb-4">
             {variants.map((v, i) => (
@@ -317,6 +374,8 @@ export default function NewProductForm() {
                 option1Name={option1Name}
                 hasOption2={hasOption2}
                 option2Name={option2Name}
+                sizeOptions={presets.sizeOptions}
+                colorOptions={presets.colorOptions}
                 onUpdate={updateVariant}
                 onRemove={() => removeVariant(v.id)}
               />
@@ -368,6 +427,8 @@ function VariantCard({
   option1Name,
   hasOption2,
   option2Name,
+  sizeOptions,
+  colorOptions,
   onUpdate,
   onRemove,
 }: {
@@ -376,6 +437,8 @@ function VariantCard({
   option1Name: string
   hasOption2: boolean
   option2Name: string
+  sizeOptions: string[]
+  colorOptions: string[]
   onUpdate: (id: string, field: keyof Omit<VariantRow, 'id'>, value: string) => void
   onRemove: () => void
 }) {
@@ -398,12 +461,12 @@ function VariantCard({
         </button>
       </div>
 
-      {/* Option values — labels come from the shared option names above */}
       <div className={`grid gap-3 mb-3 ${hasOption2 ? 'grid-cols-2' : 'grid-cols-1 sm:grid-cols-2'}`}>
         <div>
           <label className={lc}>{option1Name || 'Option 1'}</label>
           <input
             type="text"
+            list={getOptionListId(option1Name, sizeOptions, colorOptions)}
             placeholder="e.g. Small"
             value={v.option1_value}
             onChange={(e) => onUpdate(v.id, 'option1_value', e.target.value)}
@@ -416,6 +479,7 @@ function VariantCard({
             <label className={lc}>{option2Name || 'Option 2'}</label>
             <input
               type="text"
+              list={getOptionListId(option2Name, sizeOptions, colorOptions)}
               placeholder="e.g. Red"
               value={v.option2_value}
               onChange={(e) => onUpdate(v.id, 'option2_value', e.target.value)}

@@ -3,6 +3,7 @@
 import { useActionState, startTransition, useState, useRef } from 'react'
 import { updateProduct, type ProductFormState } from '@/app/actions/products'
 import { createClient } from '@/lib/supabase/client'
+import TagPicker from '@/app/dashboard/products/_tag-picker'
 
 type ExistingImage = { id: string; image_url: string; publicUrl: string }
 
@@ -27,6 +28,13 @@ type InitialData = {
   compare_at_price: number | null
 }
 
+type OrgPresets = {
+  tagPresets: string[]
+  productTypes: string[]
+  sizeOptions: string[]
+  colorOptions: string[]
+}
+
 type Preview = { objectUrl: string; file: File }
 
 function toTitleCase(s: string): string {
@@ -41,6 +49,13 @@ function emptyVariant(): VariantRow {
   }
 }
 
+function getOptionListId(optionName: string, sizeOptions: string[], colorOptions: string[]): string | undefined {
+  const lower = optionName.trim().toLowerCase()
+  if (lower === 'size' && sizeOptions.length > 0) return 'size-options-list'
+  if (lower === 'color' && colorOptions.length > 0) return 'color-options-list'
+  return undefined
+}
+
 const inputClass =
   'w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-colors bg-white'
 const labelClass = 'block text-sm font-medium text-gray-700 mb-1.5'
@@ -53,6 +68,7 @@ export default function EditProductForm({
   initialOption1Name,
   initialHasOption2,
   initialOption2Name,
+  presets,
 }: {
   productId: string
   initialData: InitialData
@@ -61,6 +77,7 @@ export default function EditProductForm({
   initialOption1Name: string
   initialHasOption2: boolean
   initialOption2Name: string
+  presets: OrgPresets
 }) {
   const updateProductWithId = updateProduct.bind(null, productId)
   const [state, dispatch, pending] = useActionState<ProductFormState, FormData>(
@@ -80,6 +97,9 @@ export default function EditProductForm({
   const [hasOption2, setHasOption2] = useState(initialHasOption2)
   const [option2Name, setOption2Name] = useState(initialOption2Name)
   const [variants, setVariants] = useState<VariantRow[]>(initialVariants)
+
+  // Controlled tag state — initialized from saved product tags
+  const [selectedTags, setSelectedTags] = useState<string[]>(initialData.tags ?? [])
 
   function handleHasOption2Change(checked: boolean) {
     setHasOption2(checked)
@@ -142,7 +162,9 @@ export default function EditProductForm({
 
     const formData = new FormData(e.currentTarget)
 
-    // Re-inject shared option names into every variant row before serialising.
+    // Inject controlled state into formData
+    formData.set('tags', selectedTags.join(', '))
+
     const enriched = variants.map((v) => ({
       ...v,
       option1_name: option1Name.trim() || null,
@@ -185,6 +207,18 @@ export default function EditProductForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
+      {/* Datalists for variant option values */}
+      {presets.sizeOptions.length > 0 && (
+        <datalist id="size-options-list">
+          {presets.sizeOptions.map((s) => <option key={s} value={s} />)}
+        </datalist>
+      )}
+      {presets.colorOptions.length > 0 && (
+        <datalist id="color-options-list">
+          {presets.colorOptions.map((c) => <option key={c} value={c} />)}
+        </datalist>
+      )}
+
       {/* Product Details */}
       <section className="bg-white border border-gray-200 rounded-xl p-6">
         <h2 className="text-sm font-semibold text-gray-900 mb-5">Product details</h2>
@@ -209,7 +243,19 @@ export default function EditProductForm({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label htmlFor="product_type" className={labelClass}>Product type</label>
-              <input id="product_type" name="product_type" type="text" defaultValue={initialData.product_type ?? ''} className={inputClass} />
+              <input
+                id="product_type"
+                name="product_type"
+                type="text"
+                list={presets.productTypes.length > 0 ? 'product-types-list' : undefined}
+                defaultValue={initialData.product_type ?? ''}
+                className={inputClass}
+              />
+              {presets.productTypes.length > 0 && (
+                <datalist id="product-types-list">
+                  {presets.productTypes.map((t) => <option key={t} value={t} />)}
+                </datalist>
+              )}
             </div>
             <div>
               <label htmlFor="vendor" className={labelClass}>Vendor</label>
@@ -218,8 +264,17 @@ export default function EditProductForm({
           </div>
 
           <div>
-            <label htmlFor="tags" className={labelClass}>Tags <span className="text-gray-400 font-normal">(comma-separated)</span></label>
-            <input id="tags" name="tags" type="text" defaultValue={(initialData.tags ?? []).join(', ')} className={inputClass} />
+            <label className={labelClass}>
+              Tags
+              {presets.tagPresets.length === 0 && (
+                <span className="text-gray-400 font-normal ml-1">(comma-separated)</span>
+              )}
+            </label>
+            <TagPicker
+              presets={presets.tagPresets}
+              selected={selectedTags}
+              onChange={setSelectedTags}
+            />
           </div>
 
           <div>
@@ -344,7 +399,6 @@ export default function EditProductForm({
       <section className="bg-white border border-gray-200 rounded-xl p-6">
         <h2 className="text-sm font-semibold text-gray-900 mb-5">Variants</h2>
 
-        {/* Option names — defined once, shared across all rows */}
         <div className="space-y-3 pb-5 mb-5 border-b border-gray-100">
           <div className="flex items-center gap-3">
             <span className="w-32 shrink-0 text-sm text-gray-600">Option 1 name</span>
@@ -381,11 +435,8 @@ export default function EditProductForm({
           )}
         </div>
 
-        {/* Variant rows */}
         {variants.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-2 mb-4">
-            No variants yet.
-          </p>
+          <p className="text-sm text-gray-400 text-center py-2 mb-4">No variants yet.</p>
         ) : (
           <div className="space-y-3 mb-4">
             {variants.map((v, i) => (
@@ -396,6 +447,8 @@ export default function EditProductForm({
                 option1Name={option1Name}
                 hasOption2={hasOption2}
                 option2Name={option2Name}
+                sizeOptions={presets.sizeOptions}
+                colorOptions={presets.colorOptions}
                 onUpdate={updateVariant}
                 onRemove={() => removeVariant(v.id)}
               />
@@ -447,6 +500,8 @@ function EditVariantCard({
   option1Name,
   hasOption2,
   option2Name,
+  sizeOptions,
+  colorOptions,
   onUpdate,
   onRemove,
 }: {
@@ -455,6 +510,8 @@ function EditVariantCard({
   option1Name: string
   hasOption2: boolean
   option2Name: string
+  sizeOptions: string[]
+  colorOptions: string[]
   onUpdate: (id: string, field: keyof Omit<VariantRow, 'id' | 'dbId'>, value: string) => void
   onRemove: () => void
 }) {
@@ -480,12 +537,12 @@ function EditVariantCard({
         </button>
       </div>
 
-      {/* Option values — labels come from the shared option names above */}
       <div className={`grid gap-3 mb-3 ${hasOption2 ? 'grid-cols-2' : 'grid-cols-1 sm:grid-cols-2'}`}>
         <div>
           <label className={lc}>{option1Name || 'Option 1'}</label>
           <input
             type="text"
+            list={getOptionListId(option1Name, sizeOptions, colorOptions)}
             placeholder="e.g. Small"
             value={v.option1_value}
             onChange={(e) => onUpdate(v.id, 'option1_value', e.target.value)}
@@ -498,6 +555,7 @@ function EditVariantCard({
             <label className={lc}>{option2Name || 'Option 2'}</label>
             <input
               type="text"
+              list={getOptionListId(option2Name, sizeOptions, colorOptions)}
               placeholder="e.g. Red"
               value={v.option2_value}
               onChange={(e) => onUpdate(v.id, 'option2_value', e.target.value)}
