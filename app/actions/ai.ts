@@ -71,10 +71,9 @@ export async function enrichProduct(data: {
   const msg = await client.messages.create({
     model: MODEL,
     max_tokens: 700,
-    messages: [
-      {
-        role: 'user',
-        content: `You are an e-commerce SEO content writer. Write a product description optimized for Google search — factual, specific, and natural-sounding. NOT marketing copy.
+    messages: [{
+      role: 'user',
+      content: `You are an e-commerce SEO content writer. Write a product description optimized for Google search — factual, specific, and natural-sounding. NOT marketing copy.
 
 Product title: ${data.title}
 Product type: ${data.productType || 'fashion item'}
@@ -90,25 +89,13 @@ Requirements:
 - 150-200 words, plain flowing prose, no bullet points, no headings
 - Write in ${langLabel}
 
-STRICTLY FORBIDDEN — do not use any of these: "elevate", "effortlessly", "timeless", "versatile", "luxurious", "stunning", "beautiful", "perfect for", "must-have", "chic", "sophisticated", "look and feel", "style statement", or any phrase that could describe any product without being specific to this one.
+STRICTLY FORBIDDEN: "elevate", "effortlessly", "timeless", "versatile", "luxurious", "stunning", "beautiful", "perfect for", "must-have", "chic", "sophisticated", or any phrase that could describe any product without being specific to this one.
 
-Return ONLY a valid JSON object — no explanation, no markdown:`,
-      },
-      {
-        role: 'assistant',
-        content: '{"description": "',
-      },
-    ],
+Return ONLY the description text — no labels, no JSON, no extra formatting.`,
+    }],
   })
 
-  const partial = (msg.content[0] as { type: 'text'; text: string }).text.trim()
-  // The assistant pre-fill started with {"description": " so we close it
-  const raw = '{"description": "' + partial
-  // Strip trailing incomplete JSON if needed and close it properly
-  const closed = raw.endsWith('"}') ? raw : raw.replace(/"?\s*$/, '"}')
-  const json = JSON.parse(closed) as Record<string, unknown>
+  const description = (msg.content[0] as { type: 'text'; text: string }).text.trim()
 
-  return {
-    description: String(json.description ?? ''),
-  }
+  return { description }
 }
