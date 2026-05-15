@@ -2,10 +2,12 @@
 
 import { useActionState, startTransition, useState, useRef } from 'react'
 import { updateProduct, type ProductFormState } from '@/app/actions/products'
+import { analyzeImages, enrichProduct } from '@/app/actions/ai'
 import { createClient } from '@/lib/supabase/client'
 import TagPicker from '@/app/dashboard/products/_tag-picker'
+import ContentScore from '@/app/dashboard/products/_content-score'
 
-type ExistingImage = { id: string; image_url: string; publicUrl: string }
+type ExistingImage = { id: string; image_url: string; alt_text: string; publicUrl: string }
 
 type VariantRow = {
   id: string
@@ -26,6 +28,8 @@ type InitialData = {
   status: string
   price: number
   compare_at_price: number | null
+  seo_title: string | null
+  seo_description: string | null
 }
 
 type OrgPresets = {
@@ -33,9 +37,13 @@ type OrgPresets = {
   productTypes: string[]
   sizeOptions: string[]
   colorOptions: string[]
+  language: string
+  brandVoice: string
 }
 
 type Preview = { objectUrl: string; file: File }
+
+type AiTask = 'description' | 'seo' | 'altText' | null
 
 function toTitleCase(s: string): string {
   return s.trim().replace(/\b\w/g, (c) => c.toUpperCase())
@@ -58,7 +66,9 @@ function getOptionListId(optionName: string, sizeOptions: string[], colorOptions
 
 const inputClass =
   'w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-colors bg-white'
-const labelClass = 'block text-sm font-medium text-gray-700 mb-1.5'
+const labelClass = 'block text-sm font-medium text-gray-700'
+const smallInputClass =
+  'flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent bg-white'
 
 export default function EditProductForm({
   productId,
@@ -86,8 +96,12 @@ export default function EditProductForm({
   )
 
   const [existingImages, setExistingImages] = useState<ExistingImage[]>(initialImages)
+  const [existingAltTexts, setExistingAltTexts] = useState<Record<string, string>>(
+    Object.fromEntries(initialImages.map((img) => [img.id, img.alt_text]))
+  )
   const [removedImageIds, setRemovedImageIds] = useState<string[]>([])
   const [previews, setPreviews] = useState<Preview[]>([])
+  const [previewAltTexts, setPreviewAltTexts] = useState<string[]>([])
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
@@ -98,30 +112,101 @@ export default function EditProductForm({
   const [option2Name, setOption2Name] = useState(initialOption2Name)
   const [variants, setVariants] = useState<VariantRow[]>(initialVariants)
 
-  // Controlled tag state — initialized from saved product tags
   const [selectedTags, setSelectedTags] = useState<string[]>(initialData.tags ?? [])
+  const [description, setDescription] = useState(initialData.description ?? '')
+  const [seoTitle, setSeoTitle] = useState(initialData.seo_title ?? '')
+  const [seoDescription, setSeoDescription] = useState(initialData.seo_description ?? '')
 
-  function handleHasOption2Change(checked: boolean) {
-    setHasOption2(checked)
-    if (!checked) {
-      setVariants((prev) => prev.map((v) => ({ ...v, option2_value: '' })))
+  const [aiTask, setAiTask] = useState<AiTask>(null)
+  const [aiError, setAiError] = useState<string | null>(null)
+
+  const [hasPrice, setHasPrice] = useState(initialData.price > 0)
+
+  const titleRef = useRef<HTMLInputElement>(null)
+  const productTypeRef = useRef<HTMLInputElement>(null)
+
+  async function generateDescription() {
+    setAiTask('description')
+    setAiError(null)
+    try {
+      const imageDescriptions = Object.values(existingAltTexts).filter(Boolean)
+      const result = await enrichProduct({
+        title: titleRef.current?.value.trim() ?? initialData.title,
+        productType: productTypeRef.current?.value.trim() ?? '',
+        imageDescriptions,
+        tags: selectedTags,
+        sizes: presets.sizeOptions,
+        colors: presets.colorOptions,
+        brandVoice: presets.brandVoice,
+        language: presets.language,
+        tagPresets: presets.tagPresets,
+      })
+      setDescription(result.description)
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : 'Failed to generate description.')
+    } finally {
+      setAiTask(null)
     }
   }
 
-  function addVariant() {
-    setVariants((prev) => [...prev, emptyVariant()])
+  async function generateSeo() {
+    setAiTask('seo')
+    setAiError(null)
+    try {
+      const imageDescriptions = Object.values(existingAltTexts).filter(Boolean)
+      const result = await enrichProduct({
+        title: titleRef.current?.value.trim() ?? initialData.title,
+        productType: productTypeRef.current?.value.trim() ?? '',
+        imageDescriptions,
+        tags: selectedTags,
+        sizes: presets.sizeOptions,
+        colors: presets.colorOptions,
+        brandVoice: presets.brandVoice,
+        language: presets.language,
+        tagPresets: presets.tagPresets,
+      })
+      setSeoTitle(result.seoTitle)
+      setSeoDescription(result.seoDescription)
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : 'Failed to generate SEO fields.')
+    } finally {
+      setAiTask(null)
+    }
   }
 
-  function removeVariant(id: string) {
-    setVariants((prev) => prev.filter((v) => v.id !== id))
+  async function generateAltTexts() {
+    if (existingImages.length === 0) return
+    setAiTask('altText')
+    setAiError(null)
+    try {
+      const title = titleRef.current?.value.trim() ?? initialData.title
+      const productType = productTypeRef.current?.value.trim() ?? ''
+      const urls = existingImages.map((img) => img.publicUrl)
+      const altTexts = await analyzeImages(urls, { title, productType, language: presets.language })
+      const newMap: Record<string, string> = {}
+      existingImages.forEach((img, i) => { if (altTexts[i]) newMap[img.id] = altTexts[i] })
+      setExistingAltTexts((prev) => ({ ...prev, ...newMap }))
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : 'Failed to generate alt text.')
+    } finally {
+      setAiTask(null)
+    }
   }
 
+  function handleHasOption2Change(checked: boolean) {
+    setHasOption2(checked)
+    if (!checked) setVariants((prev) => prev.map((v) => ({ ...v, option2_value: '' })))
+  }
+
+  function addVariant() { setVariants((prev) => [...prev, emptyVariant()]) }
+  function removeVariant(id: string) { setVariants((prev) => prev.filter((v) => v.id !== id)) }
   function updateVariant(id: string, field: keyof Omit<VariantRow, 'id' | 'dbId'>, value: string) {
     setVariants((prev) => prev.map((v) => (v.id === id ? { ...v, [field]: value } : v)))
   }
 
   function removeExistingImage(id: string) {
     setExistingImages((prev) => prev.filter((img) => img.id !== id))
+    setExistingAltTexts((prev) => { const n = { ...prev }; delete n[id]; return n })
     setRemovedImageIds((prev) => [...prev, id])
   }
 
@@ -129,20 +214,12 @@ export default function EditProductForm({
     const valid = files.filter((f) => ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
     if (valid.length === 0) return
     setPreviews((prev) => [...prev, ...valid.map((file) => ({ file, objectUrl: URL.createObjectURL(file) }))])
+    setPreviewAltTexts((prev) => [...prev, ...valid.map(() => '')])
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     addFiles(Array.from(e.target.files ?? []))
     e.target.value = ''
-  }
-
-  function handleDragOver(e: React.DragEvent) {
-    e.preventDefault()
-    setIsDragging(true)
-  }
-
-  function handleDragLeave() {
-    setIsDragging(false)
   }
 
   function handleDrop(e: React.DragEvent) {
@@ -154,6 +231,7 @@ export default function EditProductForm({
   function removePreview(index: number) {
     URL.revokeObjectURL(previews[index].objectUrl)
     setPreviews((prev) => prev.filter((_, i) => i !== index))
+    setPreviewAltTexts((prev) => prev.filter((_, i) => i !== index))
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -161,8 +239,6 @@ export default function EditProductForm({
     setUploadError(null)
 
     const formData = new FormData(e.currentTarget)
-
-    // Inject controlled state into formData
     formData.set('tags', selectedTags.join(', '))
 
     const enriched = variants.map((v) => ({
@@ -173,18 +249,16 @@ export default function EditProductForm({
     }))
     formData.set('variants_json', JSON.stringify(enriched))
     formData.set('removed_image_ids', JSON.stringify(removedImageIds))
+    formData.set('existing_image_alt_texts', JSON.stringify(existingAltTexts))
 
     if (previews.length > 0) {
       setUploading(true)
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        setUploadError('Not signed in.')
-        setUploading(false)
-        return
-      }
+      if (!user) { setUploadError('Not signed in.'); setUploading(false); return }
 
-      for (const { file } of previews) {
+      for (let i = 0; i < previews.length; i++) {
+        const { file } = previews[i]
         const ext = file.name.split('.').pop() ?? 'jpg'
         const path = `${user.id}/${crypto.randomUUID()}.${ext}`
         const { data, error } = await supabase.storage.from('product-images').upload(path, file)
@@ -194,6 +268,7 @@ export default function EditProductForm({
           return
         }
         formData.append('image_path', data.path)
+        formData.append('image_alt_text', previewAltTexts[i] ?? '')
       }
       setUploading(false)
     }
@@ -204,6 +279,11 @@ export default function EditProductForm({
   const busy = uploading || pending
   const buttonLabel = uploading ? 'Uploading images…' : pending ? 'Saving…' : 'Save changes'
   const showImageZone = existingImages.length === 0 && previews.length === 0
+
+  const descWords = description.trim().split(/\s+/).filter(Boolean).length
+  const totalImages = existingImages.length + previews.length
+  const allAltTexts = [...Object.values(existingAltTexts), ...previewAltTexts]
+  const allImagesHaveAlt = totalImages > 0 && allAltTexts.every((t) => t.trim().length > 0)
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
@@ -225,25 +305,45 @@ export default function EditProductForm({
 
         <div className="space-y-4">
           <div>
-            <label htmlFor="title" className={labelClass}>Title <span className="text-rose-500">*</span></label>
-            <input id="title" name="title" type="text" required defaultValue={initialData.title} className={inputClass} />
+            <label htmlFor="title" className={`${labelClass} mb-1.5`}>
+              Title <span className="text-rose-500">*</span>
+            </label>
+            <input
+              ref={titleRef}
+              id="title"
+              name="title"
+              type="text"
+              required
+              defaultValue={initialData.title}
+              className={inputClass}
+            />
           </div>
 
           <div>
-            <label htmlFor="description" className={labelClass}>Description</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label htmlFor="description" className={labelClass}>Description</label>
+              <AiButton
+                task="description"
+                activeTask={aiTask}
+                hasValue={description.length > 0}
+                onClick={generateDescription}
+              />
+            </div>
             <textarea
               id="description"
               name="description"
               rows={4}
-              defaultValue={initialData.description ?? ''}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
               className={`${inputClass} resize-none`}
             />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label htmlFor="product_type" className={labelClass}>Product type</label>
+              <label htmlFor="product_type" className={`${labelClass} mb-1.5`}>Product type</label>
               <input
+                ref={productTypeRef}
                 id="product_type"
                 name="product_type"
                 type="text"
@@ -258,18 +358,13 @@ export default function EditProductForm({
               )}
             </div>
             <div>
-              <label htmlFor="vendor" className={labelClass}>Vendor</label>
+              <label htmlFor="vendor" className={`${labelClass} mb-1.5`}>Vendor</label>
               <input id="vendor" name="vendor" type="text" defaultValue={initialData.vendor ?? ''} className={inputClass} />
             </div>
           </div>
 
           <div>
-            <label className={labelClass}>
-              Tags
-              {presets.tagPresets.length === 0 && (
-                <span className="text-gray-400 font-normal ml-1">(comma-separated)</span>
-              )}
-            </label>
+            <label className={`${labelClass} mb-1.5`}>Tags</label>
             <TagPicker
               presets={presets.tagPresets}
               selected={selectedTags}
@@ -278,7 +373,7 @@ export default function EditProductForm({
           </div>
 
           <div>
-            <label htmlFor="status" className={labelClass}>Status</label>
+            <label htmlFor="status" className={`${labelClass} mb-1.5`}>Status</label>
             <select id="status" name="status" defaultValue={initialData.status} className={inputClass}>
               <option value="draft">Draft</option>
               <option value="active">Active</option>
@@ -293,11 +388,20 @@ export default function EditProductForm({
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label htmlFor="price" className={labelClass}>Price</label>
-            <input id="price" name="price" type="number" min="0" step="0.01" defaultValue={initialData.price} className={inputClass} />
+            <label htmlFor="price" className={`${labelClass} mb-1.5`}>Price</label>
+            <input
+              id="price"
+              name="price"
+              type="number"
+              min="0"
+              step="0.01"
+              defaultValue={initialData.price}
+              onChange={(e) => setHasPrice(parseFloat(e.target.value) > 0)}
+              className={inputClass}
+            />
           </div>
           <div>
-            <label htmlFor="compare_at_price" className={labelClass}>Compare at price</label>
+            <label htmlFor="compare_at_price" className={`${labelClass} mb-1.5`}>Compare at price</label>
             <input id="compare_at_price" name="compare_at_price" type="number" min="0" step="0.01" defaultValue={initialData.compare_at_price ?? ''} placeholder="—" className={inputClass} />
           </div>
         </div>
@@ -314,7 +418,7 @@ export default function EditProductForm({
               {existingImages.map((img) => (
                 <div key={img.id} className="relative group aspect-square">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={img.publicUrl} alt="" className="w-full h-full object-cover rounded-lg border border-gray-200" />
+                  <img src={img.publicUrl} alt={existingAltTexts[img.id] || ''} className="w-full h-full object-cover rounded-lg border border-gray-200" />
                   <button
                     type="button"
                     onClick={() => removeExistingImage(img.id)}
@@ -325,6 +429,31 @@ export default function EditProductForm({
                       <path d="M18 6 6 18M6 6l12 12" />
                     </svg>
                   </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Image alt text</p>
+                <AiButton
+                  task="altText"
+                  activeTask={aiTask}
+                  hasValue={Object.values(existingAltTexts).some((t) => t.trim().length > 0)}
+                  onClick={generateAltTexts}
+                  label="Generate alt text"
+                />
+              </div>
+              {existingImages.map((img, i) => (
+                <div key={img.id} className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400 w-14 shrink-0">Image {i + 1}</span>
+                  <input
+                    type="text"
+                    value={existingAltTexts[img.id] ?? ''}
+                    onChange={(e) => setExistingAltTexts((prev) => ({ ...prev, [img.id]: e.target.value }))}
+                    placeholder="Describe this image…"
+                    className={smallInputClass}
+                  />
                 </div>
               ))}
             </div>
@@ -352,13 +481,29 @@ export default function EditProductForm({
                 </div>
               ))}
             </div>
+
+            <div className="mt-4 space-y-2">
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Alt text for new images</p>
+              {previews.map((_, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400 w-14 shrink-0">Image {existingImages.length + i + 1}</span>
+                  <input
+                    type="text"
+                    value={previewAltTexts[i] ?? ''}
+                    onChange={(e) => setPreviewAltTexts((prev) => prev.map((t, j) => (j === i ? e.target.value : t)))}
+                    placeholder="Describe this image…"
+                    className={smallInputClass}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
         {showImageZone ? (
           <div
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
+            onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
+            onDragLeave={() => setIsDragging(false)}
             onDrop={handleDrop}
             onClick={() => fileInputRef.current?.click()}
             className={`border-2 border-dashed rounded-xl p-10 text-center transition-colors duration-150 cursor-pointer ${
@@ -393,6 +538,69 @@ export default function EditProductForm({
         )}
 
         <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={handleFileChange} className="sr-only" />
+      </section>
+
+      {/* SEO */}
+      <section className="bg-white border border-gray-200 rounded-xl p-6">
+        <h2 className="text-sm font-semibold text-gray-900 mb-5">SEO</h2>
+
+        <div className="space-y-4">
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label htmlFor="seo_title" className={labelClass}>SEO title</label>
+              <div className="flex items-center gap-3">
+                <AiButton
+                  task="seo"
+                  activeTask={aiTask}
+                  hasValue={!!(seoTitle || seoDescription)}
+                  onClick={generateSeo}
+                />
+                <span className={`text-xs tabular-nums ${seoTitle.length > 60 ? 'text-rose-500 font-medium' : 'text-gray-400'}`}>
+                  {seoTitle.length}/60
+                </span>
+              </div>
+            </div>
+            <input
+              id="seo_title"
+              name="seo_title"
+              type="text"
+              value={seoTitle}
+              onChange={(e) => setSeoTitle(e.target.value)}
+              placeholder="Main keyword first, under 60 chars…"
+              className={inputClass}
+            />
+            {seoTitle.length > 60 && (
+              <p className="text-xs text-rose-500 mt-1">Over 60 characters — Google may truncate this.</p>
+            )}
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label htmlFor="seo_description" className={labelClass}>Meta description</label>
+              <span className={`text-xs tabular-nums ${
+                seoDescription.length > 155 ? 'text-rose-500 font-medium' :
+                seoDescription.length > 0 && seoDescription.length < 120 ? 'text-amber-500' : 'text-gray-400'
+              }`}>
+                {seoDescription.length}/155
+              </span>
+            </div>
+            <textarea
+              id="seo_description"
+              name="seo_description"
+              rows={2}
+              value={seoDescription}
+              onChange={(e) => setSeoDescription(e.target.value)}
+              placeholder="Benefit-focused, 120–155 chars…"
+              className={`${inputClass} resize-none`}
+            />
+            {seoDescription.length > 155 && (
+              <p className="text-xs text-rose-500 mt-1">Over 155 characters — Google may truncate this.</p>
+            )}
+            {seoDescription.length > 0 && seoDescription.length < 120 && (
+              <p className="text-xs text-amber-500 mt-1">Aim for 120–155 characters.</p>
+            )}
+          </div>
+        </div>
       </section>
 
       {/* Variants */}
@@ -468,7 +676,23 @@ export default function EditProductForm({
         </button>
       </section>
 
+      {/* Content quality score */}
+      <ContentScore
+        hasTitle={initialData.title.length > 0}
+        descriptionWordCount={descWords}
+        seoTitle={seoTitle}
+        seoDescription={seoDescription}
+        tagCount={selectedTags.length}
+        imageCount={totalImages}
+        allImagesHaveAltText={allImagesHaveAlt}
+        variantCount={variants.length}
+        hasPrice={hasPrice}
+      />
+
       {/* Errors & Submit */}
+      {aiError && (
+        <p className="text-sm text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-4 py-3">{aiError}</p>
+      )}
       {uploadError && (
         <p className="text-sm text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-4 py-3">{uploadError}</p>
       )}
@@ -491,6 +715,45 @@ export default function EditProductForm({
         </button>
       </div>
     </form>
+  )
+}
+
+function AiButton({
+  task,
+  activeTask,
+  hasValue,
+  onClick,
+  label,
+}: {
+  task: AiTask
+  activeTask: AiTask
+  hasValue: boolean
+  onClick: () => void
+  label?: string
+}) {
+  const isLoading = activeTask === task
+  const isDisabled = activeTask !== null
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={isDisabled}
+      className="inline-flex items-center gap-1 text-xs font-medium text-violet-600 hover:text-violet-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+    >
+      {isLoading ? (
+        <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+        </svg>
+      ) : (
+        <span aria-hidden>✨</span>
+      )}
+      {isLoading
+        ? 'Generating…'
+        : label
+          ? label
+          : hasValue ? 'Regenerate' : 'Generate'}
+    </button>
   )
 }
 
@@ -525,12 +788,7 @@ function EditVariantCard({
           Variant {index + 1}
           {v.dbId && <span className="ml-2 font-normal text-gray-300 normal-case tracking-normal">saved</span>}
         </span>
-        <button
-          type="button"
-          onClick={onRemove}
-          aria-label="Remove variant"
-          className="text-gray-400 hover:text-rose-500 transition-colors duration-150 cursor-pointer"
-        >
+        <button type="button" onClick={onRemove} aria-label="Remove variant" className="text-gray-400 hover:text-rose-500 transition-colors duration-150 cursor-pointer">
           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <path d="M18 6 6 18M6 6l12 12" />
           </svg>
@@ -569,37 +827,15 @@ function EditVariantCard({
       <div className="grid grid-cols-3 gap-3">
         <div>
           <label className={lc}>Price</label>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            placeholder="0.00"
-            value={v.price}
-            onChange={(e) => onUpdate(v.id, 'price', e.target.value)}
-            className={ic}
-          />
+          <input type="number" min="0" step="0.01" placeholder="0.00" value={v.price} onChange={(e) => onUpdate(v.id, 'price', e.target.value)} className={ic} />
         </div>
         <div>
           <label className={lc}>SKU</label>
-          <input
-            type="text"
-            placeholder="SKU-001"
-            value={v.sku}
-            onChange={(e) => onUpdate(v.id, 'sku', e.target.value)}
-            className={ic}
-          />
+          <input type="text" placeholder="SKU-001" value={v.sku} onChange={(e) => onUpdate(v.id, 'sku', e.target.value)} className={ic} />
         </div>
         <div>
           <label className={lc}>Inventory</label>
-          <input
-            type="number"
-            min="0"
-            step="1"
-            placeholder="0"
-            value={v.inventory_qty}
-            onChange={(e) => onUpdate(v.id, 'inventory_qty', e.target.value)}
-            className={ic}
-          />
+          <input type="number" min="0" step="1" placeholder="0" value={v.inventory_qty} onChange={(e) => onUpdate(v.id, 'inventory_qty', e.target.value)} className={ic} />
         </div>
       </div>
     </div>

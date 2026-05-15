@@ -2,8 +2,10 @@
 
 import { useActionState, startTransition, useState, useRef } from 'react'
 import { createProduct, type ProductFormState } from '@/app/actions/products'
+import { enrichProduct } from '@/app/actions/ai'
 import { createClient } from '@/lib/supabase/client'
 import TagPicker from '@/app/dashboard/products/_tag-picker'
+import ContentScore from '@/app/dashboard/products/_content-score'
 
 type Preview = { objectUrl: string; file: File }
 
@@ -22,7 +24,11 @@ type OrgPresets = {
   sizeOptions: string[]
   colorOptions: string[]
   defaultVendor: string | null
+  language: string
+  brandVoice: string
 }
+
+type AiTask = 'description' | 'seo' | null
 
 function toTitleCase(s: string): string {
   return s.trim().replace(/\b\w/g, (c) => c.toUpperCase())
@@ -36,7 +42,6 @@ function emptyVariant(): VariantRow {
   }
 }
 
-// Returns the datalist ID for a given option name, if presets exist
 function getOptionListId(optionName: string, sizeOptions: string[], colorOptions: string[]): string | undefined {
   const lower = optionName.trim().toLowerCase()
   if (lower === 'size' && sizeOptions.length > 0) return 'size-options-list'
@@ -46,7 +51,9 @@ function getOptionListId(optionName: string, sizeOptions: string[], colorOptions
 
 const inputClass =
   'w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-colors bg-white'
-const labelClass = 'block text-sm font-medium text-gray-700 mb-1.5'
+const labelClass = 'block text-sm font-medium text-gray-700'
+const smallInputClass =
+  'flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent bg-white'
 
 export default function NewProductForm({ presets }: { presets: OrgPresets }) {
   const [state, dispatch, pending] = useActionState<ProductFormState, FormData>(
@@ -54,35 +61,86 @@ export default function NewProductForm({ presets }: { presets: OrgPresets }) {
     undefined
   )
   const [previews, setPreviews] = useState<Preview[]>([])
+  const [previewAltTexts, setPreviewAltTexts] = useState<string[]>([])
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Shared option names — defined once, applied to all variant rows
   const [option1Name, setOption1Name] = useState('')
   const [hasOption2, setHasOption2] = useState(false)
   const [option2Name, setOption2Name] = useState('')
   const [variants, setVariants] = useState<VariantRow[]>([])
 
-  // Controlled tag state — injected into formData on submit
   const [selectedTags, setSelectedTags] = useState<string[]>([])
+  const [description, setDescription] = useState('')
+  const [seoTitle, setSeoTitle] = useState('')
+  const [seoDescription, setSeoDescription] = useState('')
 
-  function handleHasOption2Change(checked: boolean) {
-    setHasOption2(checked)
-    if (!checked) {
-      setVariants((prev) => prev.map((v) => ({ ...v, option2_value: '' })))
+  const [aiTask, setAiTask] = useState<AiTask>(null)
+  const [aiError, setAiError] = useState<string | null>(null)
+
+  // Content score helpers
+  const [hasTitle, setHasTitle] = useState(false)
+  const [hasPrice, setHasPrice] = useState(false)
+
+  const titleRef = useRef<HTMLInputElement>(null)
+  const productTypeRef = useRef<HTMLInputElement>(null)
+
+  async function generateDescription() {
+    setAiTask('description')
+    setAiError(null)
+    try {
+      const result = await enrichProduct({
+        title: titleRef.current?.value.trim() ?? '',
+        productType: productTypeRef.current?.value.trim() ?? '',
+        imageDescriptions: [],
+        tags: selectedTags,
+        sizes: presets.sizeOptions,
+        colors: presets.colorOptions,
+        brandVoice: presets.brandVoice,
+        language: presets.language,
+        tagPresets: presets.tagPresets,
+      })
+      setDescription(result.description)
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : 'Failed to generate description.')
+    } finally {
+      setAiTask(null)
     }
   }
 
-  function addVariant() {
-    setVariants((prev) => [...prev, emptyVariant()])
+  async function generateSeo() {
+    setAiTask('seo')
+    setAiError(null)
+    try {
+      const result = await enrichProduct({
+        title: titleRef.current?.value.trim() ?? '',
+        productType: productTypeRef.current?.value.trim() ?? '',
+        imageDescriptions: [],
+        tags: selectedTags,
+        sizes: presets.sizeOptions,
+        colors: presets.colorOptions,
+        brandVoice: presets.brandVoice,
+        language: presets.language,
+        tagPresets: presets.tagPresets,
+      })
+      setSeoTitle(result.seoTitle)
+      setSeoDescription(result.seoDescription)
+    } catch (err) {
+      setAiError(err instanceof Error ? err.message : 'Failed to generate SEO fields.')
+    } finally {
+      setAiTask(null)
+    }
   }
 
-  function removeVariant(id: string) {
-    setVariants((prev) => prev.filter((v) => v.id !== id))
+  function handleHasOption2Change(checked: boolean) {
+    setHasOption2(checked)
+    if (!checked) setVariants((prev) => prev.map((v) => ({ ...v, option2_value: '' })))
   }
 
+  function addVariant() { setVariants((prev) => [...prev, emptyVariant()]) }
+  function removeVariant(id: string) { setVariants((prev) => prev.filter((v) => v.id !== id)) }
   function updateVariant(id: string, field: keyof Omit<VariantRow, 'id'>, value: string) {
     setVariants((prev) => prev.map((v) => (v.id === id ? { ...v, [field]: value } : v)))
   }
@@ -91,20 +149,12 @@ export default function NewProductForm({ presets }: { presets: OrgPresets }) {
     const valid = files.filter((f) => ['image/jpeg', 'image/png', 'image/webp'].includes(f.type))
     if (valid.length === 0) return
     setPreviews((prev) => [...prev, ...valid.map((file) => ({ file, objectUrl: URL.createObjectURL(file) }))])
+    setPreviewAltTexts((prev) => [...prev, ...valid.map(() => '')])
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     addFiles(Array.from(e.target.files ?? []))
     e.target.value = ''
-  }
-
-  function handleDragOver(e: React.DragEvent) {
-    e.preventDefault()
-    setIsDragging(true)
-  }
-
-  function handleDragLeave() {
-    setIsDragging(false)
   }
 
   function handleDrop(e: React.DragEvent) {
@@ -116,6 +166,7 @@ export default function NewProductForm({ presets }: { presets: OrgPresets }) {
   function removePreview(index: number) {
     URL.revokeObjectURL(previews[index].objectUrl)
     setPreviews((prev) => prev.filter((_, i) => i !== index))
+    setPreviewAltTexts((prev) => prev.filter((_, i) => i !== index))
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -123,8 +174,6 @@ export default function NewProductForm({ presets }: { presets: OrgPresets }) {
     setUploadError(null)
 
     const formData = new FormData(e.currentTarget)
-
-    // Inject controlled state into formData
     formData.set('tags', selectedTags.join(', '))
 
     const enriched = variants.map((v) => ({
@@ -139,13 +188,10 @@ export default function NewProductForm({ presets }: { presets: OrgPresets }) {
       setUploading(true)
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) {
-        setUploadError('Not signed in.')
-        setUploading(false)
-        return
-      }
+      if (!user) { setUploadError('Not signed in.'); setUploading(false); return }
 
-      for (const { file } of previews) {
+      for (let i = 0; i < previews.length; i++) {
+        const { file } = previews[i]
         const ext = file.name.split('.').pop() ?? 'jpg'
         const path = `${user.id}/${crypto.randomUUID()}.${ext}`
         const { data, error } = await supabase.storage.from('product-images').upload(path, file)
@@ -155,6 +201,7 @@ export default function NewProductForm({ presets }: { presets: OrgPresets }) {
           return
         }
         formData.append('image_path', data.path)
+        formData.append('image_alt_text', previewAltTexts[i] ?? '')
       }
       setUploading(false)
     }
@@ -164,6 +211,9 @@ export default function NewProductForm({ presets }: { presets: OrgPresets }) {
 
   const busy = uploading || pending
   const buttonLabel = uploading ? 'Uploading images…' : pending ? 'Saving…' : 'Save product'
+
+  const descWords = description.trim().split(/\s+/).filter(Boolean).length
+  const allImagesHaveAlt = previews.length > 0 && previewAltTexts.every((t) => t.trim().length > 0)
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
@@ -185,16 +235,37 @@ export default function NewProductForm({ presets }: { presets: OrgPresets }) {
 
         <div className="space-y-4">
           <div>
-            <label htmlFor="title" className={labelClass}>Title <span className="text-rose-500">*</span></label>
-            <input id="title" name="title" type="text" required placeholder="e.g. Silk Evening Blouse" className={inputClass} />
+            <label htmlFor="title" className={`${labelClass} mb-1.5`}>
+              Title <span className="text-rose-500">*</span>
+            </label>
+            <input
+              ref={titleRef}
+              id="title"
+              name="title"
+              type="text"
+              required
+              placeholder="e.g. Silk Evening Blouse"
+              onChange={(e) => setHasTitle(e.target.value.trim().length > 0)}
+              className={inputClass}
+            />
           </div>
 
           <div>
-            <label htmlFor="description" className={labelClass}>Description</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label htmlFor="description" className={labelClass}>Description</label>
+              <AiButton
+                task="description"
+                activeTask={aiTask}
+                hasValue={description.length > 0}
+                onClick={generateDescription}
+              />
+            </div>
             <textarea
               id="description"
               name="description"
               rows={4}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
               placeholder="Describe your product…"
               className={`${inputClass} resize-none`}
             />
@@ -202,8 +273,9 @@ export default function NewProductForm({ presets }: { presets: OrgPresets }) {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label htmlFor="product_type" className={labelClass}>Product type</label>
+              <label htmlFor="product_type" className={`${labelClass} mb-1.5`}>Product type</label>
               <input
+                ref={productTypeRef}
                 id="product_type"
                 name="product_type"
                 type="text"
@@ -218,7 +290,7 @@ export default function NewProductForm({ presets }: { presets: OrgPresets }) {
               )}
             </div>
             <div>
-              <label htmlFor="vendor" className={labelClass}>Vendor</label>
+              <label htmlFor="vendor" className={`${labelClass} mb-1.5`}>Vendor</label>
               <input
                 id="vendor"
                 name="vendor"
@@ -231,12 +303,7 @@ export default function NewProductForm({ presets }: { presets: OrgPresets }) {
           </div>
 
           <div>
-            <label className={labelClass}>
-              Tags
-              {presets.tagPresets.length === 0 && (
-                <span className="text-gray-400 font-normal ml-1">(comma-separated)</span>
-              )}
-            </label>
+            <label className={`${labelClass} mb-1.5`}>Tags</label>
             <TagPicker
               presets={presets.tagPresets}
               selected={selectedTags}
@@ -245,7 +312,7 @@ export default function NewProductForm({ presets }: { presets: OrgPresets }) {
           </div>
 
           <div>
-            <label htmlFor="status" className={labelClass}>Status</label>
+            <label htmlFor="status" className={`${labelClass} mb-1.5`}>Status</label>
             <select id="status" name="status" defaultValue="draft" className={inputClass}>
               <option value="draft">Draft</option>
               <option value="active">Active</option>
@@ -260,11 +327,20 @@ export default function NewProductForm({ presets }: { presets: OrgPresets }) {
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label htmlFor="price" className={labelClass}>Price</label>
-            <input id="price" name="price" type="number" min="0" step="0.01" defaultValue="0" className={inputClass} />
+            <label htmlFor="price" className={`${labelClass} mb-1.5`}>Price</label>
+            <input
+              id="price"
+              name="price"
+              type="number"
+              min="0"
+              step="0.01"
+              defaultValue="0"
+              onChange={(e) => setHasPrice(parseFloat(e.target.value) > 0)}
+              className={inputClass}
+            />
           </div>
           <div>
-            <label htmlFor="compare_at_price" className={labelClass}>Compare at price</label>
+            <label htmlFor="compare_at_price" className={`${labelClass} mb-1.5`}>Compare at price</label>
             <input id="compare_at_price" name="compare_at_price" type="number" min="0" step="0.01" placeholder="—" className={inputClass} />
           </div>
         </div>
@@ -275,8 +351,8 @@ export default function NewProductForm({ presets }: { presets: OrgPresets }) {
         <h2 className="text-sm font-semibold text-gray-900 mb-5">Images</h2>
 
         <div
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
+          onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
+          onDragLeave={() => setIsDragging(false)}
           onDrop={handleDrop}
           onClick={() => fileInputRef.current?.click()}
           className={`border-2 border-dashed rounded-xl p-10 text-center transition-colors duration-150 cursor-pointer ${
@@ -301,25 +377,106 @@ export default function NewProductForm({ presets }: { presets: OrgPresets }) {
         <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={handleFileChange} className="sr-only" />
 
         {previews.length > 0 && (
-          <div className="grid grid-cols-4 sm:grid-cols-6 gap-3 mt-4">
-            {previews.map(({ objectUrl, file }, i) => (
-              <div key={objectUrl} className="relative group aspect-square">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={objectUrl} alt={file.name} className="w-full h-full object-cover rounded-lg border border-gray-200" />
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); removePreview(i) }}
-                  aria-label={`Remove ${file.name}`}
-                  className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-150 rounded-lg flex items-center justify-center cursor-pointer"
-                >
-                  <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                    <path d="M18 6 6 18M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-4 sm:grid-cols-6 gap-3 mt-4">
+              {previews.map(({ objectUrl, file }, i) => (
+                <div key={objectUrl} className="relative group aspect-square">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={objectUrl} alt={file.name} className="w-full h-full object-cover rounded-lg border border-gray-200" />
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); removePreview(i) }}
+                    aria-label={`Remove ${file.name}`}
+                    className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-150 rounded-lg flex items-center justify-center cursor-pointer"
+                  >
+                    <svg className="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <path d="M18 6 6 18M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 space-y-2">
+              <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">Image alt text</p>
+              {previews.map((_, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400 w-14 shrink-0">Image {i + 1}</span>
+                  <input
+                    type="text"
+                    value={previewAltTexts[i] ?? ''}
+                    onChange={(e) => setPreviewAltTexts((prev) => prev.map((t, j) => (j === i ? e.target.value : t)))}
+                    placeholder="Describe this image…"
+                    className={smallInputClass}
+                  />
+                </div>
+              ))}
+            </div>
+          </>
         )}
+      </section>
+
+      {/* SEO */}
+      <section className="bg-white border border-gray-200 rounded-xl p-6">
+        <h2 className="text-sm font-semibold text-gray-900 mb-5">SEO</h2>
+
+        <div className="space-y-4">
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label htmlFor="seo_title" className={labelClass}>SEO title</label>
+              <div className="flex items-center gap-3">
+                <AiButton
+                  task="seo"
+                  activeTask={aiTask}
+                  hasValue={!!(seoTitle || seoDescription)}
+                  onClick={generateSeo}
+                />
+                <span className={`text-xs tabular-nums ${seoTitle.length > 60 ? 'text-rose-500 font-medium' : 'text-gray-400'}`}>
+                  {seoTitle.length}/60
+                </span>
+              </div>
+            </div>
+            <input
+              id="seo_title"
+              name="seo_title"
+              type="text"
+              value={seoTitle}
+              onChange={(e) => setSeoTitle(e.target.value)}
+              placeholder="Main keyword first, under 60 chars…"
+              className={inputClass}
+            />
+            {seoTitle.length > 60 && (
+              <p className="text-xs text-rose-500 mt-1">Over 60 characters — Google may truncate this.</p>
+            )}
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label htmlFor="seo_description" className={labelClass}>Meta description</label>
+              <span className={`text-xs tabular-nums ${
+                seoDescription.length > 155 ? 'text-rose-500 font-medium' :
+                seoDescription.length > 0 && seoDescription.length < 120 ? 'text-amber-500' : 'text-gray-400'
+              }`}>
+                {seoDescription.length}/155
+              </span>
+            </div>
+            <textarea
+              id="seo_description"
+              name="seo_description"
+              rows={2}
+              value={seoDescription}
+              onChange={(e) => setSeoDescription(e.target.value)}
+              placeholder="Benefit-focused, 120–155 chars…"
+              className={`${inputClass} resize-none`}
+            />
+            {seoDescription.length > 155 && (
+              <p className="text-xs text-rose-500 mt-1">Over 155 characters — Google may truncate this.</p>
+            )}
+            {seoDescription.length > 0 && seoDescription.length < 120 && (
+              <p className="text-xs text-amber-500 mt-1">Aim for 120–155 characters.</p>
+            )}
+          </div>
+        </div>
       </section>
 
       {/* Variants */}
@@ -395,7 +552,23 @@ export default function NewProductForm({ presets }: { presets: OrgPresets }) {
         </button>
       </section>
 
+      {/* Content quality score */}
+      <ContentScore
+        hasTitle={hasTitle}
+        descriptionWordCount={descWords}
+        seoTitle={seoTitle}
+        seoDescription={seoDescription}
+        tagCount={selectedTags.length}
+        imageCount={previews.length}
+        allImagesHaveAltText={allImagesHaveAlt}
+        variantCount={variants.length}
+        hasPrice={hasPrice}
+      />
+
       {/* Errors & Submit */}
+      {aiError && (
+        <p className="text-sm text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-4 py-3">{aiError}</p>
+      )}
       {uploadError && (
         <p className="text-sm text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-4 py-3">{uploadError}</p>
       )}
@@ -418,6 +591,39 @@ export default function NewProductForm({ presets }: { presets: OrgPresets }) {
         </button>
       </div>
     </form>
+  )
+}
+
+function AiButton({
+  task,
+  activeTask,
+  hasValue,
+  onClick,
+}: {
+  task: AiTask
+  activeTask: AiTask
+  hasValue: boolean
+  onClick: () => void
+}) {
+  const isLoading = activeTask === task
+  const isDisabled = activeTask !== null
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={isDisabled}
+      className="inline-flex items-center gap-1 text-xs font-medium text-violet-600 hover:text-violet-800 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+    >
+      {isLoading ? (
+        <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+        </svg>
+      ) : (
+        <span aria-hidden>✨</span>
+      )}
+      {isLoading ? 'Generating…' : hasValue ? 'Regenerate' : 'Generate'}
+    </button>
   )
 }
 
@@ -449,12 +655,7 @@ function VariantCard({
     <div className="border border-gray-200 rounded-xl p-4">
       <div className="flex items-center justify-between mb-4">
         <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Variant {index + 1}</span>
-        <button
-          type="button"
-          onClick={onRemove}
-          aria-label="Remove variant"
-          className="text-gray-400 hover:text-rose-500 transition-colors duration-150 cursor-pointer"
-        >
+        <button type="button" onClick={onRemove} aria-label="Remove variant" className="text-gray-400 hover:text-rose-500 transition-colors duration-150 cursor-pointer">
           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <path d="M18 6 6 18M6 6l12 12" />
           </svg>
@@ -493,37 +694,15 @@ function VariantCard({
       <div className="grid grid-cols-3 gap-3">
         <div>
           <label className={lc}>Price</label>
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            placeholder="0.00"
-            value={v.price}
-            onChange={(e) => onUpdate(v.id, 'price', e.target.value)}
-            className={ic}
-          />
+          <input type="number" min="0" step="0.01" placeholder="0.00" value={v.price} onChange={(e) => onUpdate(v.id, 'price', e.target.value)} className={ic} />
         </div>
         <div>
           <label className={lc}>SKU</label>
-          <input
-            type="text"
-            placeholder="SKU-001"
-            value={v.sku}
-            onChange={(e) => onUpdate(v.id, 'sku', e.target.value)}
-            className={ic}
-          />
+          <input type="text" placeholder="SKU-001" value={v.sku} onChange={(e) => onUpdate(v.id, 'sku', e.target.value)} className={ic} />
         </div>
         <div>
           <label className={lc}>Inventory</label>
-          <input
-            type="number"
-            min="0"
-            step="1"
-            placeholder="0"
-            value={v.inventory_qty}
-            onChange={(e) => onUpdate(v.id, 'inventory_qty', e.target.value)}
-            className={ic}
-          />
+          <input type="number" min="0" step="1" placeholder="0" value={v.inventory_qty} onChange={(e) => onUpdate(v.id, 'inventory_qty', e.target.value)} className={ic} />
         </div>
       </div>
     </div>

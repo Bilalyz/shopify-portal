@@ -217,7 +217,7 @@ export async function exportProductsCsv(): Promise<string> {
   const { data: products, error } = await supabase
     .from('products')
     .select(`
-      id, title, description, vendor, product_type, tags, status, price, compare_at_price,
+      id, title, description, vendor, product_type, tags, status, price, compare_at_price, seo_title, seo_description,
       variants(option1_name, option1_value, option2_name, option2_value, price, sku),
       product_images(image_url, position, alt_text)
     `)
@@ -262,6 +262,8 @@ export async function exportProductsCsv(): Promise<string> {
       'Tags':             (p.tags ?? []).join(', '),
       'Published':        p.status === 'active' ? 'true' : 'false',
       'Gift Card':        'false',
+      'SEO Title':        p.seo_title ?? '',
+      'SEO Description':  p.seo_description ?? '',
       'Status':           p.status,
       ...variantCols(effectiveVariants[0], compareAtPrice),
       ...(images[0] ? imageCols(images[0], getPublicUrl(images[0].image_url)) : {}),
@@ -305,7 +307,7 @@ export async function exportSelectedProductsCsv(ids: string[]): Promise<string> 
   const { data: products, error } = await supabase
     .from('products')
     .select(`
-      id, title, description, vendor, product_type, tags, status, price, compare_at_price,
+      id, title, description, vendor, product_type, tags, status, price, compare_at_price, seo_title, seo_description,
       variants(option1_name, option1_value, option2_name, option2_value, price, sku),
       product_images(image_url, position, alt_text)
     `)
@@ -348,6 +350,8 @@ export async function exportSelectedProductsCsv(ids: string[]): Promise<string> 
       'Tags':             (p.tags ?? []).join(', '),
       'Published':        p.status === 'active' ? 'true' : 'false',
       'Gift Card':        'false',
+      'SEO Title':        p.seo_title ?? '',
+      'SEO Description':  p.seo_description ?? '',
       'Status':           p.status,
       ...variantCols(effectiveVariants[0], compareAtPrice),
       ...(images[0] ? imageCols(images[0], getPublicUrl(images[0].image_url)) : {}),

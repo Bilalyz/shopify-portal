@@ -29,10 +29,11 @@ export default async function EditProductPage({
     { data: variantRows },
     { data: imageRows },
     { data: settings },
+    { data: org },
   ] = await Promise.all([
     supabase
       .from('products')
-      .select('title, description, product_type, vendor, tags, status, price, compare_at_price, created_at, updated_at')
+      .select('title, description, product_type, vendor, tags, status, price, compare_at_price, seo_title, seo_description, created_at, updated_at')
       .eq('id', id)
       .eq('org_id', orgId)
       .single(),
@@ -43,7 +44,7 @@ export default async function EditProductPage({
       .order('created_at', { ascending: true }),
     supabase
       .from('product_images')
-      .select('id, image_url')
+      .select('id, image_url, alt_text')
       .eq('product_id', id)
       .order('position', { ascending: true }),
     supabase
@@ -51,6 +52,11 @@ export default async function EditProductPage({
       .select('tag_presets, product_types, size_options, color_options')
       .eq('org_id', orgId)
       .maybeSingle(),
+    supabase
+      .from('organizations')
+      .select('language, ai_brand_voice')
+      .eq('id', orgId)
+      .single(),
   ])
 
   if (!product) notFound()
@@ -60,11 +66,14 @@ export default async function EditProductPage({
     productTypes: settings?.product_types ?? [],
     sizeOptions:  settings?.size_options  ?? [],
     colorOptions: settings?.color_options ?? [],
+    language: org?.language ?? 'he',
+    brandVoice: org?.ai_brand_voice ?? '',
   }
 
   const existingImages = (imageRows ?? []).map((img) => ({
     id: img.id,
     image_url: img.image_url,
+    alt_text: img.alt_text ?? '',
     publicUrl: supabase.storage.from('product-images').getPublicUrl(img.image_url).data.publicUrl,
   }))
 

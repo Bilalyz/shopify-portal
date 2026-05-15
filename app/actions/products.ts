@@ -65,6 +65,8 @@ export async function createProduct(
       status,
       price,
       compare_at_price,
+      seo_title: (formData.get('seo_title') as string | null)?.trim() || null,
+      seo_description: (formData.get('seo_description') as string | null)?.trim() || null,
     })
     .select('id')
     .single()
@@ -75,12 +77,14 @@ export async function createProduct(
 
   // image_path entries are storage paths appended by the browser before dispatch
   const imagePaths = formData.getAll('image_path') as string[]
+  const imageAltTexts = formData.getAll('image_alt_text') as string[]
   if (imagePaths.length > 0) {
     const { error: imgError } = await supabase.from('product_images').insert(
       imagePaths.map((path, i) => ({
         product_id: product.id,
         image_url: path,
         position: i,
+        alt_text: imageAltTexts[i]?.trim() || null,
       }))
     )
     if (imgError) {
@@ -166,6 +170,8 @@ export async function updateProduct(
       status,
       price,
       compare_at_price,
+      seo_title: (formData.get('seo_title') as string | null)?.trim() || null,
+      seo_description: (formData.get('seo_description') as string | null)?.trim() || null,
     })
     .eq('id', productId)
     .eq('org_id', orgContext.current.orgId)
@@ -187,8 +193,22 @@ export async function updateProduct(
     await supabase.from('product_images').delete().in('id', removedImageIds)
   }
 
+  // Update alt texts for existing images
+  const existingAltTextsRaw = formData.get('existing_image_alt_texts') as string | null
+  if (existingAltTextsRaw) {
+    const altTextMap: Record<string, string> = JSON.parse(existingAltTextsRaw)
+    for (const [imgId, altText] of Object.entries(altTextMap)) {
+      await supabase
+        .from('product_images')
+        .update({ alt_text: altText.trim() || null })
+        .eq('id', imgId)
+        .eq('product_id', productId)
+    }
+  }
+
   // Add new uploaded images
   const imagePaths = formData.getAll('image_path') as string[]
+  const imageAltTexts = formData.getAll('image_alt_text') as string[]
   if (imagePaths.length > 0) {
     const { data: lastImg } = await supabase
       .from('product_images')
@@ -203,6 +223,7 @@ export async function updateProduct(
         product_id: productId,
         image_url: path,
         position: startPosition + i,
+        alt_text: imageAltTexts[i]?.trim() || null,
       }))
     )
   }

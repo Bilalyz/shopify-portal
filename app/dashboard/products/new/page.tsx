@@ -24,7 +24,7 @@ export default async function NewProductPage() {
       .maybeSingle(),
     supabase
       .from('organizations')
-      .select('default_vendor')
+      .select('default_vendor, language, ai_brand_voice')
       .eq('id', orgId)
       .single(),
   ])
@@ -35,6 +35,8 @@ export default async function NewProductPage() {
     sizeOptions:  settings?.size_options  ?? [],
     colorOptions: settings?.color_options ?? [],
     defaultVendor: org?.default_vendor ?? null,
+    language: org?.language ?? 'he',
+    brandVoice: org?.ai_brand_voice ?? '',
   }
 
   return (
