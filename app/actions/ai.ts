@@ -73,25 +73,33 @@ export async function enrichProduct(data: {
     max_tokens: 700,
     messages: [{
       role: 'user',
-      content: `You are an e-commerce SEO content writer. Write a product description optimized for Google search — factual, specific, and natural-sounding. NOT marketing copy.
+      content: `You are an e-commerce SEO content writer. Your job is to ALWAYS write a product description — never refuse, never ask questions, never flag mismatches.
 
-Product title: ${data.title}
-Product type: ${data.productType || 'fashion item'}
+Use this priority when writing:
+- 60% weight: image descriptions (what the product actually looks like)
+- 20% weight: product title (use as the SEO keyword anchor)
+- 20% weight: any other context provided
+
+If image details conflict with the title, base the description on what the images show and still use the title as the keyword. Never comment on inconsistencies.
+
+--- PRODUCT DATA ---
+Title: ${data.title}
+Type: ${data.productType || 'fashion item'}
 ${sizesLine}
 ${colorsLine}
 ${imageContext}
 ${toneLine}
+--- END DATA ---
 
-Requirements:
-- Open with the product name and its most specific defining characteristic (fabric, cut, or key detail)
-- Include concrete specifics: silhouette, fit, fabric/material, notable construction or design details
-- Integrate the product title and natural keyword variants organically throughout
-- 150-200 words, plain flowing prose, no bullet points, no headings
+Write the description following these rules:
+- Open with the product title as the first keyword, followed by its most specific visual characteristic from the images
+- Include concrete details from the images: colors, silhouette, fabric texture, cut, construction details
+- Integrate the title and natural keyword variants organically throughout
+- 150-200 words, plain prose, no bullet points, no headings
 - Write in ${langLabel}
+- NEVER use: "elevate", "effortlessly", "timeless", "versatile", "luxurious", "stunning", "beautiful", "perfect for", "must-have", "chic", "sophisticated", or any generic phrase that could describe any product
 
-STRICTLY FORBIDDEN: "elevate", "effortlessly", "timeless", "versatile", "luxurious", "stunning", "beautiful", "perfect for", "must-have", "chic", "sophisticated", or any phrase that could describe any product without being specific to this one.
-
-Return ONLY the description text — no labels, no JSON, no extra formatting.`,
+Return ONLY the description text — no labels, no JSON, no preamble, no explanation.`,
     }],
   })
 
